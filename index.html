@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GTA SIX Countdown</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600&display=swap" rel="stylesheet">
 
   <style>
     * {
@@ -14,7 +14,8 @@
     }
 
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 600;
       min-height: 100vh;
       overflow: hidden;
       display: flex;
@@ -30,6 +31,7 @@
       background-size: cover;
       background-position: center;
       background-repeat: no-repeat;
+      
     }
 
     body::before {
@@ -51,6 +53,9 @@
           transparent 40%);
 
       z-index: 1;
+      
+      filter: contrast(2) saturate(2);
+     
     }
 
     .container {
@@ -77,35 +82,66 @@
       margin-bottom: 10px;
       text-transform: uppercase;
       text-shadow: 0 0 12px #7cecff;
+      -webkit-text-stroke: 0.2px rgba(255,255,255,0.9);
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
     }
 
+    .subtitle::before,
+    .subtitle::after {
+      content: "";
+      width: 100px;
+      height: 2px;
+      border-radius: 2px;
+      position: relative;
+    
+      background: linear-gradient(90deg, #fd4fcb, #20adf9);
+    }
+    
+    .subtitle::before::after,
+    .subtitle::after::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+    
+      background: linear-gradient(90deg, #fd4fcb, #20adf9);
+    
+      filter: blur(8px);
+      opacity: 0.9;
+    }
+    
     .title {
       display: flex;
       justify-content: center;
-      gap: 25px;
       align-items: center;
       flex-wrap: wrap;
       margin-bottom: 30px;
     }
 
-    .gta {
-      font-size: clamp(5rem, 12vw, 10rem);
+    .gtasix {
+      font-size: clamp(7rem, 14vw, 12rem);
       font-weight: 800;
-      color: #6cf9fb;
-      text-shadow:
-        0 0 10px #6cf9fb,
-        0 0 25px #6cf9fb,
-        0 0 10px rgba(108,249,251,0.8);
-    }
 
-    .six {
-      font-size: clamp(5rem, 12vw, 10rem);
-      font-weight: 800;
-      color: #ff58df;
+      background: linear-gradient(
+        135deg,
+        #0fc7fd 15%,
+        #0fc7fd 45%,
+        #fd50ca 65%,
+        #fd50ca 85%
+      );
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      color: transparent;
+      
+      -webkit-text-stroke: 2px rgba(255,255,255,0.9);
+
       text-shadow:
-        0 0 10px #ff58df,
-        0 0 25px #ff58df,
-        0 0 10px rgba(255,88,223,0.8);
+        0 0 10px rgba(253,79,203,0.4),
+        0 0 25px rgba(32,173,249,0.4);
     }
 
     .date-box {
@@ -120,6 +156,8 @@
       font-size: 1.6rem;
       margin-bottom: 14px;
       box-shadow: 0 0 20px rgba(255, 72, 212, 0.25);
+      
+      transform: translateY(-35px);
     }
 
     .timezone {
@@ -155,19 +193,41 @@
     }
 
     .number {
-      font-size: clamp(4rem, 7vw, 6rem);
+      font-size: clamp(6rem, 9vw, 8rem);
       font-weight: 800;
       margin-bottom: 10px;
+      -webkit-text-stroke: 1.5px rgba(255,255,255,0.85);
     }
-
+    
     .blue .number {
-      color: #6cf9fb;
-      text-shadow: 0 0 20px #6cf9fb;
+      background: linear-gradient(
+        to bottom,
+        #3394c6 0%,
+        #76cffd 100%
+      );
+      
+      text-shadow: 0 0 20px #3394c6;
+    
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
     }
 
     .pink .number {
-      color: #ff58df;
-      text-shadow: 0 0 20px #ff58df;
+      background: linear-gradient(
+        to bottom,
+        #9f1376 0%,
+        #fd50ca 100%
+      );
+      
+      text-shadow: 0 0 20px #fd50ca;
+    
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    
+    .pink .number {
+      color: #fd50ca;
+      text-shadow: 0 0 20px #fd50ca;
     }
 
     .label {
@@ -230,6 +290,11 @@
       .button {
         font-size: 1rem;
       }
+
+      .subtitle::before,
+      .subtitle::after {
+        width: 60px;
+      }
     }
   </style>
 </head>
@@ -244,15 +309,12 @@
     <div class="subtitle">CONTAGEM REGRESSIVA PARA</div>
 
     <div class="title">
-      <div class="gta">GTA</div>
-      <div class="six">SIX</div>
+      <div class="gtasix">GTA SIX</div>
     </div>
 
     <div class="date-box">
       19 DE NOVEMBRO DE 2026
     </div>
-
-
 
     <div class="countdown">
 
@@ -265,19 +327,19 @@
       <div class="card pink">
         <div class="number" id="hours">0</div>
         <div class="label">Horas</div>
-        <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Drink%20-%20Neon%20Rosa.png" alt="Drink" style="height: 60px; width: auto; margin-top: 12px; filter: drop-shadow(0 0 10px #ff58df);">
+        <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Flamingo%20-%20Neon%20Rosa.png" alt="Flamingo" style="height: 60px; width: auto; margin-top: 12px; filter: drop-shadow(0 0 10px #ff58df);">
       </div>
 
       <div class="card blue">
         <div class="number" id="minutes">0</div>
         <div class="label">Minutos</div>
-        <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Flamingo%20-%20Neon%20Rosa.png" alt="Flamingo" style="height: 60px; width: auto; margin-top: 12px; filter: drop-shadow(0 0 10px #6cf9fb);">
+        <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Onda%20-%20Neon%20Azul.png" alt="Onda" style="height: 60px; width: auto; margin-top: 12px; filter: drop-shadow(0 0 10px #6cf9fb);">
       </div>
 
       <div class="card pink">
         <div class="number" id="seconds">0</div>
         <div class="label">Segundos</div>
-        <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Onda%20-%20Neon%20Azul.png" alt="Onda" style="height: 60px; width: auto; margin-top: 12px; filter: drop-shadow(0 0 10px #ff58df);">
+        <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Drink%20-%20Neon%20Rosa.png" alt="Drink" style="height: 60px; width: auto; margin-top: 12px; filter: drop-shadow(0 0 10px #ff58df);">
       </div>
 
     </div>
@@ -287,11 +349,7 @@
     </a>
 
   </div>
-
-  <div class="footer">
-    Feito para os fãs de GTA
-  </div>
-
+  
   <script>
     const targetDate = new Date('2026-11-19T00:00:00-03:00').getTime();
 
