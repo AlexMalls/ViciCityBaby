@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GTA SIX Countdown</title>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 600;
+      min-height: 100vh;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      color: white;
+
+      background-image:
+        linear-gradient(rgba(18, 5, 35, 0.2), rgba(8, 2, 18, 0.3)),
+        url('https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Background.png');
+
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      
+    }
+
+    body::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+
+      background:
+        radial-gradient(circle at center,
+          rgba(255, 70, 180, 0.18),
+          transparent 55%),
+
+        linear-gradient(to top,
+          rgba(255, 120, 40, 0.18),
+          transparent 35%),
+
+        linear-gradient(to right,
+          rgba(0, 238, 255, 0.08),
+          transparent 40%);
+
+      z-index: 1;
+      
+      filter: contrast(2) saturate(2);
+     
+    }
+
+    .container {
+      position: relative;
+      z-index: 2;
+      width: 95%;
+      max-width: 1250px;
+      text-align: center;
+    }
+
+    .top-icon {
+      font-size: 3rem;
+      color: #ff5fe1;
+      margin-bottom: 10px;
+      text-shadow: 0 0 18px #ff5fe1;
+      display: flex;
+      justify-content: center;
+    }
+
+    .subtitle {
+      color: #7cecff;
+      font-size: 1.2rem;
+      letter-spacing: 5px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      text-shadow: 0 0 12px #7cecff;
+      -webkit-text-stroke: 0.2px rgba(255,255,255,0.9);
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+
+    .subtitle::before,
+    .subtitle::after {
+      content: "";
+      width: 100px;
+      height: 2px;
+      border-radius: 2px;
+      position: relative;
+    
+      background: linear-gradient(90deg, #fd4fcb, #20adf9);
+    }
+    
+    .subtitle::before::after,
+    .subtitle::after::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+    
+      background: linear-gradient(90deg, #fd4fcb, #20adf9);
+    
+      filter: blur(8px);
+      opacity: 0.9;
+    }
+    
+    .title {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 30px;
+    }
+
+    .gtasix {
+      font-size: clamp(7rem, 14vw, 12rem);
+      font-weight: 800;
+
+      background: linear-gradient(
+        135deg,
+        #0fc7fd 15%,
+        #0fc7fd 45%,
+        #fd50ca 65%,
+        #fd50ca 85%
+      );
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      color: transparent;
+      
+      -webkit-text-stroke: 2px rgba(255,255,255,0.9);
+
+      text-shadow:
+        0 0 10px rgba(253,79,203,0.4),
+        0 0 25px rgba(32,173,249,0.4);
+    }
+
+    .date-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 30px;
+      border-radius: 20px;
+      border: 2px solid rgba(255,255,255,0.15);
+      background: rgba(30, 8, 48, 0.4);
+      backdrop-filter: blur(10px);
+      font-size: 1.6rem;
+      margin-bottom: 14px;
+      box-shadow: 0 0 20px rgba(255, 72, 212, 0.25);
+      
+      transform: translateY(-35px);
+    }
+
+    .timezone {
+      color: rgba(255,255,255,0.85);
+      margin-bottom: 40px;
+      font-size: 1.3rem;
+    }
+
+    .countdown {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 25px;
+      margin-bottom: 45px;
+    }
+
+    .card {
+      padding: 35px 20px;
+      border-radius: 28px;
+      background: rgba(22, 8, 38, 0.28);
+      backdrop-filter: blur(14px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card.blue {
+      border: 2px solid rgba(108,249,251,0.8);
+      box-shadow: 0 0 25px rgba(108,249,251,0.35);
+    }
+
+    .card.pink {
+      border: 2px solid rgba(255,88,223,0.8);
+      box-shadow: 0 0 25px rgba(255,88,223,0.35);
+    }
+
+    .number {
+      font-size: clamp(6rem, 9vw, 8rem);
+      font-weight: 800;
+      margin-bottom: 10px;
+      -webkit-text-stroke: 1.5px rgba(255,255,255,0.85);
+    }
+    
+    .blue .number {
+      background: linear-gradient(
+        to bottom,
+        #3394c6 0%,
+        #76cffd 100%
+      );
+      
+      text-shadow: 0 0 20px #3394c6;
+    
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .pink .number {
+      background: linear-gradient(
+        to bottom,
+        #9f1376 0%,
+        #fd50ca 100%
+      );
+      
+      text-shadow: 0 0 20px #fd50ca;
+    
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    
+    .pink .number {
+      color: #fd50ca;
+      text-shadow: 0 0 20px #fd50ca;
+    }
+
+    .label {
+      font-size: 2rem;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .button {
+      display: inline-block;
+      padding: 18px 45px;
+      border-radius: 50px;
+      border: 2px solid rgba(255,255,255,0.18);
+      background: rgba(40, 10, 50, 0.35);
+      color: white;
+      text-decoration: none;
+      font-size: 1.4rem;
+      font-weight: 600;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 0 25px rgba(255,88,223,0.25);
+      transition: 0.3s ease;
+    }
+
+    .button:hover {
+      transform: translateY(-4px) scale(1.02);
+      box-shadow: 0 0 35px rgba(108,249,251,0.45);
+    }
+
+    .footer {
+      position: absolute;
+      bottom: 18px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      z-index: 2;
+      color: rgba(255,255,255,0.7);
+      font-size: 1rem;
+    }
+
+    @media (max-width: 768px) {
+      body {
+        overflow-y: auto;
+        padding: 30px 0;
+      }
+
+      .timezone {
+        font-size: 1rem;
+      }
+
+      .date-box {
+        font-size: 1rem;
+        padding: 12px 18px;
+      }
+
+      .label {
+        font-size: 1.2rem;
+      }
+
+      .button {
+        font-size: 1rem;
+      }
+
+      .subtitle::before,
+      .subtitle::after {
+        width: 60px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+
+    <div class="top-icon">
+      <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Coqueiros%20-%20Neon%20Rosa.png" alt="Coqueiros Neon" style="height: 80px; width: auto; filter: drop-shadow(0 0 18px #ff5fe1);">
+    </div>
+
+    <div class="subtitle">CONTAGEM REGRESSIVA PARA</div>
+
+    <div class="title">
+      <div class="gtasix">GTA SIX</div>
+    </div>
+
+    <div class="date-box">
+      19 DE NOVEMBRO DE 2026
+    </div>
+
+    <div class="countdown">
+
+      <div class="card blue">
+        <div class="number" id="days">0</div>
+        <div class="label">Dias</div>
+        <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Coqueiro%20-%20Neon%20Azul.png" alt="Coqueiro" style="height: 60px; width: auto; margin-top: 12px; filter: drop-shadow(0 0 10px #6cf9fb);">
+      </div>
+
+      <div class="card pink">
+        <div class="number" id="hours">0</div>
+        <div class="label">Horas</div>
+        <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Flamingo%20-%20Neon%20Rosa.png" alt="Flamingo" style="height: 60px; width: auto; margin-top: 12px; filter: drop-shadow(0 0 10px #ff58df);">
+      </div>
+
+      <div class="card blue">
+        <div class="number" id="minutes">0</div>
+        <div class="label">Minutos</div>
+        <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Onda%20-%20Neon%20Azul.png" alt="Onda" style="height: 60px; width: auto; margin-top: 12px; filter: drop-shadow(0 0 10px #6cf9fb);">
+      </div>
+
+      <div class="card pink">
+        <div class="number" id="seconds">0</div>
+        <div class="label">Segundos</div>
+        <img src="https://raw.githubusercontent.com/AlexMalls/ViciCityBaby/main/imagens/Drink%20-%20Neon%20Rosa.png" alt="Drink" style="height: 60px; width: auto; margin-top: 12px; filter: drop-shadow(0 0 10px #ff58df);">
+      </div>
+
+    </div>
+
+    <a class="button" href="https://www.rockstargames.com/VI">
+      ✦ PREPARE-SE PARA VICE CITY
+    </a>
+
+  </div>
+  
+  <script>
+    const targetDate = new Date('2026-11-19T00:00:00-03:00').getTime();
+
+    function updateCountdown() {
+      const now = new Date().getTime();
+      const distance = targetDate - now;
+
+      if (distance <= 0) {
+        document.body.innerHTML = `
+          <div style="
+            height:100vh;
+            width:100%;
+            display:flex;
+            justify-content:center;
+            align-items:center;
+            background:black;
+            color:#ff58df;
+            font-family:Inter,sans-serif;
+            font-size:5rem;
+            text-shadow:0 0 25px #ff58df;
+          ">
+            GTA SIX CHEGOU 🎉
+          </div>
+        `;
+        return;
+      }
+
+      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+      document.getElementById('days').textContent = days;
+      document.getElementById('hours').textContent = String(hours).padStart(2, '0');
+      document.getElementById('minutes').textContent = String(minutes).padStart(2, '0');
+      document.getElementById('seconds').textContent = String(seconds).padStart(2, '0');
+    }
+
+    updateCountdown();
+    setInterval(updateCountdown, 1000);
+  </script>
+
+</body>
+</html>
