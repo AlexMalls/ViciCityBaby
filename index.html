@@ -423,6 +423,8 @@
     const horarioTeste = '13:22';
     // Ajuste em SEGUNDOS (pode ser decimal): + atrasa, - adianta.
     const Delay = 7;
+    // Volume EXCLUSIVO do Synthwave (0 = mudo, 100 = maximo).
+    const volumeSynthwave = 50;
     // ==============================
 
     const targetDate = new Date('2026-11-19T00:00:00-03:00').getTime();
@@ -491,6 +493,7 @@
     // O relogio define o ponto do loop; reabrir o site nao reinicia a playlist.
     const AMBIENT_URL = './Synthwave%202000.mp3';
     const ambientAudio = new Audio(AMBIENT_URL);
+    ambientAudio.volume = Math.max(0, Math.min(100, Number(volumeSynthwave))) / 100;
     ambientAudio.preload = 'auto';
     ambientAudio.loop = true;
     ambientAudio.playsInline = true;
