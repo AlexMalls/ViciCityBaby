@@ -418,6 +418,13 @@
   <div class="launch-message" id="launchMessage" hidden>GTA SIX CHEGOU 🎉</div>
 
   <script>
+    // ===== CONFIGURACAO RAPIDA =====
+    // Horario de Brasilia: 'HH:MM'. Use '' para desativar o teste.
+    const horarioTeste = '13:09';
+    // Ajuste em SEGUNDOS (pode ser decimal): + atrasa, - adianta.
+    const Delay = 10;
+    // ==============================
+
     const targetDate = new Date('2026-11-19T00:00:00-03:00').getTime();
 
     function updateCountdown() {
@@ -445,14 +452,37 @@
     setInterval(updateCountdown, 1000);
 
 
-    // Todos os horarios referem-se ao fuso de Brasilia (-03:00).
-    // Calibracao de 10 s: atrasar a trilha pois o trecho percebido chegou adiantado.
+    // Teste no dia atual em Brasilia; virada oficial fixa em 19/11/2026.
     const MUSIC_MOMENTS = [
-      { label: 'teste 13:09', peak: new Date('2026-11-18T13:09:00-03:00').getTime() },
-      { label: 'virada 00:00', peak: new Date('2026-11-19T00:00:00-03:00').getTime() }
+      { label: 'virada 00:00', peak: targetDate }
     ];
+
+    function dataAtualBrasilia() {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+      }).formatToParts(new Date());
+      const read = type => parts.find(part => part.type === type).value;
+      return read('year') + '-' + read('month') + '-' + read('day');
+    }
+
+    if (horarioTeste !== '') {
+      if (/^([01]\d|2[0-3]):[0-5]\d$/.test(horarioTeste)) {
+        const testTimestamp = new Date(
+          dataAtualBrasilia() + 'T' + horarioTeste + ':00-03:00'
+        ).getTime();
+        MUSIC_MOMENTS.push({
+          label: 'teste ' + horarioTeste,
+          peak: testTimestamp
+        });
+      } else {
+        console.warn('horarioTeste invalido: use HH:MM ou vazio para desativar.');
+      }
+    }
+    MUSIC_MOMENTS.sort((a, b) => a.peak - b.peak);
+
     const MUSIC_PEAK_SECONDS = 5 * 60 + 39;
-    const TIMING_CORRECTION_MS = 10 * 1000; // ajuste empirico: audio 10 s mais tarde
+    const TIMING_CORRECTION_MS = Number.isFinite(Number(Delay)) ? Number(Delay) * 1000 : 0;
     const MUSIC_LENGTH_SECONDS = 7 * 60 + 53;
     const MUSIC_URL = './Vici%20City%20is%20coming.mp3';
     const musicButton = document.getElementById('musicButton');
