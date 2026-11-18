@@ -502,11 +502,36 @@
     const AMBIENT_ANCHOR_MS = targetDate - MUSIC_PEAK_SECONDS * 1000 + TIMING_CORRECTION_MS;
     const FINAL_START_MS = AMBIENT_ANCHOR_MS;
 
-    // Continua tocando ate o inicio real de Phil Collins (Delay incluido).
-    // Durante testes da faixa principal, pausa e retoma o mashup depois.
+    // Conta os loops de tras para frente, usando o inicio do Phil como marco fixo.
+    let ambientResyncCount = 0;
+    let ambientLastResync = 'nenhuma';
+    let ambientLastDrift = null;
+    function ambientPlan(now = Date.now()) {
+      const secondsToFinal = (FINAL_START_MS - now) / 1000;
+      const duration = ambientAudio.duration;
+      if (!Number.isFinite(duration) || duration <= 0)
+        return { valid: false, duration: null, secondsToFinal };
+      if (secondsToFinal <= 0)
+        return { valid: true, duration, secondsToFinal, position: duration,
+          remainingThisLoop: 0, completeLoopsAfter: 0, cycleFromEnd: 0,
+          nextLoopMs: FINAL_START_MS };
+      // Cada trecho atual somado aos ciclos seguintes termina exatamente no Phil.
+      let position = ((-secondsToFinal % duration) + duration) % duration;
+      if (duration - position < 0.00001) position = 0;
+      const remainingThisLoop = position === 0 ? duration : duration - position;
+      const completeLoopsAfter = Math.max(0,
+        Math.round((secondsToFinal - remainingThisLoop) / duration));
+      return {
+        valid: true, duration, secondsToFinal, position, remainingThisLoop,
+        completeLoopsAfter, cycleFromEnd: completeLoopsAfter + 1,
+        nextLoopMs: now + remainingThisLoop * 1000
+      };
+    }
+
     function ambientShouldPlay() {
       if (!soundEnabled || Date.now() >= FINAL_START_MS) return false;
       const current = musicWindow();
+      // Durante testes do Phil, o Synthwave nao pode tocar simultaneamente.
       return !(current && current.position >= 0 && current.position < current.trackLength);
     }
 
@@ -515,26 +540,35 @@
         if (!ambientAudio.paused) ambientAudio.pause();
         return;
       }
-      if (ambientReady && Number.isFinite(ambientAudio.duration) && ambientAudio.duration > 0) {
-        const duration = ambientAudio.duration;
-        const elapsed = (Date.now() - AMBIENT_ANCHOR_MS) / 1000;
-        const desired = ((elapsed % duration) + duration) % duration;
-        const rawDrift = Math.abs(ambientAudio.currentTime - desired);
-        const drift = Math.min(rawDrift, duration - rawDrift);
-        // Busca so quando necessario; evita cortes frequentes no mashup.
-        if (forceSeek || drift > 1.8) {
-          try { ambientAudio.currentTime = desired; } catch (ignored) {}
+      const plan = ambientPlan();
+      if (plan.valid) {
+        const difference = ambientAudio.currentTime - plan.position;
+        const drift = ((difference + plan.duration / 2) %
+          plan.duration + plan.duration) % plan.duration - plan.duration / 2;
+        ambientLastDrift = drift;
+        // Correcao fina na reta final. Durante o loop, evita saltos audiveis.
+        const threshold = plan.secondsToFinal <= 20 ? 0.35 : 1.25;
+        if (!ambientAudio.seeking &&
+            ((forceSeek && Math.abs(drift) > 0.06) || Math.abs(drift) > threshold)) {
+          try {
+            ambientAudio.currentTime = plan.position;
+            ambientResyncCount++;
+            ambientLastResync = new Date().toLocaleTimeString('pt-BR',
+              { timeZone: 'America/Sao_Paulo', hour12: false }) +
+              ' | ' + drift.toFixed(3) + 's';
+          } catch (error) { ambientLastResync = 'falha de busca: ' + error.message; }
         }
       }
       if (ambientAudio.paused && !ambientPlayPending) {
         ambientPlayPending = true;
-        const request = ambientAudio.play();
-        if (request && typeof request.then === 'function') {
-          request.then(() => { ambientPlayPending = false; })
-            .catch(() => { ambientPlayPending = false; });
-        } else {
-          ambientPlayPending = false;
-        }
+        const promise = ambientAudio.play();
+        if (promise && typeof promise.then === 'function') {
+          promise.then(() => { ambientPlayPending = false; })
+            .catch(error => {
+              ambientPlayPending = false;
+              ambientLastResync = 'play bloqueado: ' + (error.name || 'erro');
+            });
+        } else ambientPlayPending = false;
       }
     }
 
@@ -559,11 +593,23 @@
     let activeSchedule = null;
     let preloadError = null;
 
+    let ambientCutoffGain = null;
+    let ambientCutoffPlannedAt = 0;
+
     if (AudioContextClass) {
       audioContext = new AudioContextClass({ latencyHint: 'interactive' });
       audioGain = audioContext.createGain();
       audioGain.gain.value = 0;
       audioGain.connect(audioContext.destination);
+      // Mesmo AudioContext do Phil: ganho programado zera exatamente no inicio.
+      try {
+        const ambientSourceNode = audioContext.createMediaElementSource(ambientAudio);
+        ambientCutoffGain = audioContext.createGain();
+        ambientCutoffGain.gain.value = 1;
+        ambientSourceNode.connect(ambientCutoffGain).connect(audioContext.destination);
+      } catch (error) {
+        console.warn('Corte preciso indisponivel; usando pausa programada:', error);
+      }
     } else {
       musicButton.disabled = true;
       musicButton.title = 'Navegador não suporta Web Audio';
@@ -654,6 +700,17 @@
       }
     }
 
+    function scheduleAmbientCutoff() {
+      if (!ambientCutoffGain || !audioContext || audioContext.state !== 'running') return;
+      const currentTime = audioContext.currentTime;
+      const seconds = (FINAL_START_MS - Date.now()) / 1000;
+      ambientCutoffGain.gain.cancelScheduledValues(currentTime);
+      ambientCutoffGain.gain.setValueAtTime(seconds > 0 ? 1 : 0, currentTime);
+      if (seconds > 0)
+        ambientCutoffGain.gain.setValueAtTime(0, currentTime + seconds);
+      ambientCutoffPlannedAt = Date.now();
+    }
+
     function setSoundEnabled(enabled) {
       soundEnabled = enabled;
       musicButton.classList.toggle('sound-on', enabled);
@@ -680,6 +737,7 @@
       audioContext.resume()
         .then(() => {
           syncMusic(true);
+          scheduleAmbientCutoff();
           syncAmbient();
         })
         .catch(() => {
@@ -712,20 +770,20 @@
     function syncAll() {
       syncAmbient();
       syncMusic();
+      if (audioContext && audioContext.state === 'running' &&
+          Date.now() - ambientCutoffPlannedAt > 3000) scheduleAmbientCutoff();
+      if (typeof renderViciDebug === 'function') renderViciDebug();
     }
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) {
-        syncAmbient(true);
-        syncMusic();
+        syncAmbient(true); syncMusic(); scheduleAmbientCutoff();
       }
     });
     window.addEventListener('pageshow', () => {
-      syncAmbient(true);
-      syncMusic();
+      syncAmbient(true); syncMusic(); scheduleAmbientCutoff();
     });
     window.addEventListener('focus', () => {
-      syncAmbient(true);
-      syncMusic();
+      syncAmbient(true); syncMusic(); scheduleAmbientCutoff();
     });
     window.addEventListener('online', syncAll);
     setInterval(syncAll, 200);
