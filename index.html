@@ -446,14 +446,13 @@
 
 
     // Todos os horarios referem-se ao fuso de Brasilia (-03:00).
-    // A faixa precisa chegar em 05:39 exatamente no instante "peak".
+    // Calibracao de 10 s: atrasar a trilha pois o trecho percebido chegou adiantado.
     const MUSIC_MOMENTS = [
-      { label: 'teste 12:47', peak: new Date('2026-11-18T12:47:00-03:00').getTime() },
-      { label: 'teste 12:55', peak: new Date('2026-11-18T12:55:00-03:00').getTime() },
-      { label: 'teste 13:07', peak: new Date('2026-11-18T13:07:00-03:00').getTime() },
+      { label: 'teste 13:09', peak: new Date('2026-11-18T13:09:00-03:00').getTime() },
       { label: 'virada 00:00', peak: new Date('2026-11-19T00:00:00-03:00').getTime() }
     ];
     const MUSIC_PEAK_SECONDS = 5 * 60 + 39;
+    const TIMING_CORRECTION_MS = 10 * 1000; // ajuste empirico: audio 10 s mais tarde
     const MUSIC_LENGTH_SECONDS = 7 * 60 + 53;
     const MUSIC_URL = './Vici%20City%20is%20coming.mp3';
     const musicButton = document.getElementById('musicButton');
@@ -482,10 +481,10 @@
         ? Math.min(audioBuffer.duration, MUSIC_LENGTH_SECONDS)
         : MUSIC_LENGTH_SECONDS;
       const event = MUSIC_MOMENTS.find(item =>
-        now < item.peak + (trackLength - MUSIC_PEAK_SECONDS) * 1000
+        now < item.peak + (trackLength - MUSIC_PEAK_SECONDS) * 1000 + TIMING_CORRECTION_MS
       );
       if (!event) return null;
-      const startMs = event.peak - MUSIC_PEAK_SECONDS * 1000;
+      const startMs = event.peak - MUSIC_PEAK_SECONDS * 1000 + TIMING_CORRECTION_MS;
       return {
         event, startMs, now, trackLength,
         position: (now - startMs) / 1000
