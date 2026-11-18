@@ -1051,7 +1051,8 @@
           ' / '+(finalVideo.readyState>=2?'pronto':'carregando')+
           ' / '+Math.round(visualProgressAt(now).videoOpacity*100)+'%'+
           (visualVideoError?' / erro '+visualVideoError:''),
-        sceneReset:visualSuppressedPeak===null?'não':'ativo para este evento'
+        sceneReset:visualLockedEventPeak!==null?'vídeo permanente':
+          (visualSuppressedPeak===null?'não':'resetado para o timer')
       };
       for (const [field,value] of Object.entries(metrics)) {
         if (vcOutputs[field]) vcOutputs[field].textContent=value;
@@ -1080,6 +1081,27 @@
     let visualVideoPending = false;
     let visualVideoRetryAfter = 0;
     let visualVideoError = null;
+
+    // Ao concluir o fade do video, grava o estado final neste navegador.
+    // F5, fim do teste e novas viradas nao fazem o site voltar ao timer.
+    const finalVideoLockKey = 'viciCity.finalVideoLockedEvent';
+    const visualSuppressedKey = 'viciCity.visualSuppressedEvent';
+    let visualLockedEventPeak = null;
+    try {
+      const saved = localStorage.getItem(finalVideoLockKey);
+      if (saved !== null && Number.isFinite(Number(saved)))
+        visualLockedEventPeak = Number(saved);
+      const suppressed = localStorage.getItem(visualSuppressedKey);
+      if (suppressed !== null && Number.isFinite(Number(suppressed)))
+        visualSuppressedPeak = Number(suppressed);
+    } catch (ignored) {}
+
+    function lockFinalVideo(eventPeak) {
+      if (visualLockedEventPeak !== null || eventPeak === null) return;
+      visualLockedEventPeak = eventPeak;
+      try { localStorage.setItem(finalVideoLockKey, String(eventPeak)); }
+      catch (ignored) {}
+    }
 
     function resizeFinalImage() {
       if (!finalImage.naturalWidth || !finalImage.naturalHeight) return;
@@ -1112,6 +1134,12 @@
     }
 
     function visualProgressAt(now = Date.now()) {
+      if (visualLockedEventPeak !== null) return {
+        event:{ peak:visualLockedEventPeak, label:'video permanente' },
+        elapsed:Math.max(0,now-visualLockedEventPeak-TIMING_CORRECTION_MS),
+        hudOpacity:0, backgroundOpacity:1, scrollFraction:1,
+        videoOpacity:1, phase:'VIDEO EM LOOP (PERMANENTE)'
+      };
       const active = visualEventAt(now);
       if (!active) return { event:null, elapsed:null, hudOpacity:1,
         backgroundOpacity:0, scrollFraction:0, videoOpacity:0, phase:'AGUARDANDO' };
@@ -1186,9 +1214,17 @@
         startFinalVideo(eventPeak);
       if (progress.event && progress.elapsed>=SCROLL_END_MS &&
           visualVideoFadeStart===null && finalVideo.readyState>=2 &&
-          !finalVideo.paused) {
+          !finalVideo.paused && visualLockedEventPeak===null) {
         // Se a rede atrasar, segura a ultima imagem em vez de tela preta.
         visualVideoFadeStart = now;
+        progress = visualProgressAt(now);
+      }
+      // Trava no video assim que o fade termina (ou ao retornar de aba
+      // suspensa). O fim do teste e a meia-noite deixam de afetar a cena.
+      if (visualLockedEventPeak===null && progress.event &&
+          progress.videoOpacity>=1 && visualVideoFadeStart!==null &&
+          finalVideo.readyState>=2 && !finalVideo.paused) {
+        lockFinalVideo(eventPeak);
         progress = visualProgressAt(now);
       }
       visualScrollPixels = visualOverflowPx*progress.scrollFraction;
@@ -1197,13 +1233,25 @@
       visualHud.style.opacity = String(progress.hudOpacity);
       visualHud.style.pointerEvents = progress.hudOpacity>.05?'':'none';
       finalBackground.style.opacity = String(progress.backgroundOpacity);
-      finalVideo.style.opacity = String(progress.videoOpacity);
+      // Com F5 no estado permanente, deixa a ultima imagem visivel ate
+      // o video ter um frame renderizavel, evitando tela preta.
+      finalVideo.style.opacity = visualLockedEventPeak!==null &&
+        finalVideo.readyState<2 ? '0' : String(progress.videoOpacity);
     }
 
     function resetFinalVisual() {
       const current = visualEventAt();
-      // Reset dura ate a proxima virada/teste (ou ate recarregar a pagina).
-      visualSuppressedPeak = current ? current.event.peak : null;
+      const endingEvent = visualLockedEventPeak !== null ?
+        visualLockedEventPeak : (current ? current.event.peak : null);
+      // Impede que o mesmo evento recrie a cena apos reset ou F5.
+      visualSuppressedPeak = endingEvent;
+      visualLockedEventPeak = null;
+      try {
+        localStorage.removeItem(finalVideoLockKey);
+        if (visualSuppressedPeak === null)
+          localStorage.removeItem(visualSuppressedKey);
+        else localStorage.setItem(visualSuppressedKey, String(visualSuppressedPeak));
+      } catch (ignored) {}
       stopFinalVideo();
       displayedVisualEvent = null;
       visualHud.style.transition = 'opacity 700ms ease';
