@@ -1241,8 +1241,9 @@
 
     function resetFinalVisual() {
       const current = visualEventAt();
-      const endingEvent = visualLockedEventPeak !== null ?
-        visualLockedEventPeak : (current ? current.event.peak : null);
+      // Reseta o evento visual que estaria ativo AGORA; se nenhum estiver,
+      // suprime o ultimo evento travado. Evita reentrada imediata no video.
+      const endingEvent = current ? current.event.peak : visualLockedEventPeak;
       // Impede que o mesmo evento recrie a cena apos reset ou F5.
       visualSuppressedPeak = endingEvent;
       visualLockedEventPeak = null;
