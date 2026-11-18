@@ -486,6 +486,67 @@
     const MUSIC_LENGTH_SECONDS = 7 * 60 + 53;
     const MUSIC_URL = './Vici%20City%20is%20coming.mp3';
     const musicButton = document.getElementById('musicButton');
+
+    // Synthwave longo: reproduz por streaming, sem decodificar ~96 MB na memoria.
+    // O relogio define o ponto do loop; reabrir o site nao reinicia a playlist.
+    const AMBIENT_URL = './Synthwave%202000.mp3';
+    const ambientAudio = new Audio(AMBIENT_URL);
+    ambientAudio.preload = 'auto';
+    ambientAudio.loop = true;
+    ambientAudio.playsInline = true;
+    let ambientPlayPending = false;
+    let ambientReady = false;
+    const AMBIENT_ANCHOR_MS = targetDate - MUSIC_PEAK_SECONDS * 1000 + TIMING_CORRECTION_MS;
+    const FINAL_START_MS = AMBIENT_ANCHOR_MS;
+
+    // Continua tocando ate o inicio real de Phil Collins (Delay incluido).
+    // Durante testes da faixa principal, pausa e retoma o mashup depois.
+    function ambientShouldPlay() {
+      if (!soundEnabled || Date.now() >= FINAL_START_MS) return false;
+      const current = musicWindow();
+      return !(current && current.position >= 0 && current.position < current.trackLength);
+    }
+
+    function syncAmbient(forceSeek = false) {
+      if (!ambientShouldPlay()) {
+        if (!ambientAudio.paused) ambientAudio.pause();
+        return;
+      }
+      if (ambientReady && Number.isFinite(ambientAudio.duration) && ambientAudio.duration > 0) {
+        const duration = ambientAudio.duration;
+        const elapsed = (Date.now() - AMBIENT_ANCHOR_MS) / 1000;
+        const desired = ((elapsed % duration) + duration) % duration;
+        const rawDrift = Math.abs(ambientAudio.currentTime - desired);
+        const drift = Math.min(rawDrift, duration - rawDrift);
+        // Busca so quando necessario; evita cortes frequentes no mashup.
+        if (forceSeek || drift > 1.8) {
+          try { ambientAudio.currentTime = desired; } catch (ignored) {}
+        }
+      }
+      if (ambientAudio.paused && !ambientPlayPending) {
+        ambientPlayPending = true;
+        const request = ambientAudio.play();
+        if (request && typeof request.then === 'function') {
+          request.then(() => { ambientPlayPending = false; })
+            .catch(() => { ambientPlayPending = false; });
+        } else {
+          ambientPlayPending = false;
+        }
+      }
+    }
+
+    ambientAudio.addEventListener('loadedmetadata', () => {
+      ambientReady = true;
+      syncAmbient(true);
+    });
+    ambientAudio.addEventListener('ended', () => {
+      // O loop normalmente e automatico. Revalida a posicao pelo relogio.
+      syncAmbient(true);
+    });
+    ambientAudio.addEventListener('error', () => {
+      if (ambientAudio.error) console.warn('Synthwave indisponivel:', ambientAudio.error.code);
+    });
+
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     let audioContext = null;
     let audioGain = null;
@@ -605,12 +666,22 @@
     musicButton.addEventListener('click', () => {
       const next = !soundEnabled;
       setSoundEnabled(next);
-      if (!next || !audioContext) return;
-      // resume() acontece no clique para respeitar a política de autoplay.
+      if (!next) {
+        ambientAudio.pause();
+        return;
+      }
+
+      // play() e chamado durante o clique para liberar o MP3 no navegador.
+      syncAmbient(true);
+      if (!audioContext) return;
       audioContext.resume()
-        .then(() => syncMusic(true))
+        .then(() => {
+          syncMusic(true);
+          syncAmbient();
+        })
         .catch(() => {
           setSoundEnabled(false);
+          ambientAudio.pause();
           musicButton.title = 'Clique novamente para liberar áudio';
         });
     });
@@ -635,14 +706,30 @@
       }
     }
 
+    function syncAll() {
+      syncAmbient();
+      syncMusic();
+    }
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) syncMusic();
+      if (!document.hidden) {
+        syncAmbient(true);
+        syncMusic();
+      }
     });
-    window.addEventListener('pageshow', () => syncMusic());
-    window.addEventListener('focus', () => syncMusic());
-    window.addEventListener('online', () => syncMusic());
-    setInterval(() => syncMusic(), 200);
+    window.addEventListener('pageshow', () => {
+      syncAmbient(true);
+      syncMusic();
+    });
+    window.addEventListener('focus', () => {
+      syncAmbient(true);
+      syncMusic();
+    });
+    window.addEventListener('online', syncAll);
+    setInterval(syncAll, 200);
+    // Os dois carregamentos sao independentes: o mashup faz streaming;
+    // a faixa final curta continua pre-decodificada com agendamento preciso.
     preloadMusic();
+    ambientAudio.load();
 
   </script>
 
