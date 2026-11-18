@@ -297,6 +297,31 @@
         width: 60px;
       }
     }
+  
+    /* Controle discreto do audio; o visual do contador permanece intacto */
+    .music-panel {
+      position: fixed; right: 20px; bottom: 18px; z-index: 100;
+      display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+      max-width: min(340px, calc(100vw - 30px));
+    }
+    .music-button {
+      padding: 12px 19px; border-radius: 28px; cursor: pointer;
+      border: 1px solid #ff58df; color: #fff; font-family: inherit;
+      font-size: 1.1rem; font-weight: 700; letter-spacing: .4px;
+      background: rgba(32, 8, 47, .9);
+      box-shadow: 0 0 20px rgba(255, 88, 223, .35);
+    }
+    .music-button:hover { box-shadow: 0 0 25px rgba(108, 249, 251, .55); }
+    .music-status {
+      color: #fff; font-size: .9rem; text-align: right; line-height: 1.25;
+      text-shadow: 0 1px 4px #120623; background: rgba(15, 4, 28, .75);
+      padding: 5px 9px; border-radius: 8px;
+    }
+    @media (max-width: 768px) {
+      .music-panel { bottom: 12px; right: 12px; }
+      .music-button { font-size: .95rem; padding: 10px 15px; }
+    }
+
   </style>
 </head>
 <body>
@@ -351,6 +376,12 @@
 
   </div>
   
+
+  <div class="music-panel" id="musicPanel">
+    <button id="musicButton" class="music-button" type="button" aria-pressed="false">🔊 ATIVAR SOM</button>
+    <div id="musicStatus" class="music-status" role="status" aria-live="polite">Som opcional — sincronizado com o horário de Brasília</div>
+  </div>
+
   <script>
     const targetDate = new Date('2026-11-19T00:00:00-03:00').getTime();
 
@@ -391,6 +422,177 @@
 
     updateCountdown();
     setInterval(updateCountdown, 1000);
+
+    // Teste: 18/11/2026 12:47. Virada final: 19/11/2026 00:00.
+    // Em ambos, o trecho 05:39 da faixa coincide com o horario informado.
+    const MUSIC_MOMENTS = [
+      { label: 'teste 12:47', peak: new Date('2026-11-18T12:47:00-03:00').getTime() },
+      { label: 'virada 00:00', peak: new Date('2026-11-19T00:00:00-03:00').getTime() }
+    ];
+    const MUSIC_PEAK_SECONDS = 5 * 60 + 39;
+    const MUSIC_LENGTH_SECONDS = 7 * 60 + 53;
+    const MUSIC_URL = './Vici%20City%20is%20coming.mp3';
+    const music = new Audio(MUSIC_URL);
+    music.preload = 'auto';
+    music.playsInline = true;
+    const musicButton = document.getElementById('musicButton');
+    const musicStatus = document.getElementById('musicStatus');
+    let soundEnabled = false;
+    let cachedAudioUrl = null;
+    let isLoadingBlob = false;
+    let playPending = false;
+    let lastMusicError = '';
+
+    function musicWindow() {
+      const now = Date.now();
+      const moment = MUSIC_MOMENTS.find(m =>
+        now < m.peak + (MUSIC_LENGTH_SECONDS - MUSIC_PEAK_SECONDS) * 1000
+      );
+      if (!moment) return null;
+      return { moment, position: (now - (moment.peak - MUSIC_PEAK_SECONDS * 1000)) / 1000 };
+    }
+
+    function musicPosition(pos) {
+      if (music.readyState < 1) return;
+      const limit = Number.isFinite(music.duration) && music.duration > 0
+        ? Math.min(music.duration - .15, MUSIC_LENGTH_SECONDS - .15)
+        : MUSIC_LENGTH_SECONDS - .15;
+      const desired = Math.max(0, Math.min(pos, limit));
+      if (Math.abs(music.currentTime - desired) > .3) {
+        try { music.currentTime = desired; } catch (err) { /* aguardar metadados */ }
+      }
+    }
+
+    function setMusicStatus(message) {
+      if (musicStatus.textContent !== message) musicStatus.textContent = message;
+    }
+
+    function updateSoundButton() {
+      musicButton.textContent = soundEnabled ? '🔇 DESATIVAR SOM' : '🔊 ATIVAR SOM';
+      musicButton.setAttribute('aria-pressed', String(soundEnabled));
+    }
+
+    function tryPlayMusic() {
+      if (!soundEnabled || !music.src || !music.paused || playPending) return;
+      playPending = true;
+      const request = music.play();
+      if (request && typeof request.then === 'function') {
+        request.then(() => { playPending = false; })
+          .catch(() => {
+            playPending = false;
+            soundEnabled = false;
+            updateSoundButton();
+            setMusicStatus('Clique em ATIVAR SOM para liberar o áudio.');
+          });
+      } else {
+        playPending = false;
+      }
+    }
+
+    function syncMusic() {
+      const current = musicWindow();
+      if (!current) {
+        music.pause();
+        setMusicStatus('Eventos encerrados.');
+        return;
+      }
+
+      const { moment, position } = current;
+      if (position < 0) {
+        if (!music.paused) music.pause();
+        if (soundEnabled) setMusicStatus('Som preparado para ' + moment.label + '.');
+        else setMusicStatus('Ative o som para acompanhar ' + moment.label + '.');
+        return;
+      }
+      if (position >= MUSIC_LENGTH_SECONDS) {
+        music.pause();
+        return;
+      }
+
+      musicPosition(position);
+      if (soundEnabled) {
+        music.volume = 1;
+        tryPlayMusic();
+        if (!music.paused) {
+          setMusicStatus('♪ ' + moment.label + ' — música sincronizada');
+        }
+      } else {
+        if (!music.paused) music.pause();
+        setMusicStatus('Clique em ATIVAR SOM para ouvir sincronizado.');
+      }
+    }
+
+    // Armazena o MP3 completo em memoria para resistir a quedas da internet
+    // depois de concluido o download. A URL original permite iniciar antes disso.
+    async function preloadMusicOffline() {
+      if (isLoadingBlob) return;
+      isLoadingBlob = true;
+      try {
+        const response = await fetch(MUSIC_URL, { cache: 'force-cache' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const blob = await response.blob();
+        if (blob.size < 1024) throw new Error('MP3 vazio ou incompleto');
+        cachedAudioUrl = URL.createObjectURL(blob);
+        const current = musicWindow();
+        const wasPlaying = !music.paused;
+        music.pause();
+        music.src = cachedAudioUrl;
+        music.load();
+        if (current && current.position >= 0 && current.position < MUSIC_LENGTH_SECONDS) {
+          musicPosition(current.position);
+          if (wasPlaying && soundEnabled) tryPlayMusic();
+        }
+      } catch (error) {
+        lastMusicError = error.message || 'Falha ao carregar MP3';
+        setMusicStatus('Não foi possível carregar o MP3: ' + lastMusicError);
+      } finally {
+        isLoadingBlob = false;
+      }
+    }
+
+    musicButton.addEventListener('click', () => {
+      soundEnabled = !soundEnabled;
+      updateSoundButton();
+      if (!soundEnabled) {
+        music.pause();
+        setMusicStatus('Som desativado.');
+        return;
+      }
+      const current = musicWindow();
+      if (current && current.position >= 0 && current.position < MUSIC_LENGTH_SECONDS) {
+        musicPosition(current.position);
+        tryPlayMusic(); // Clique explícito autoriza a reprodução no navegador.
+      } else {
+        // Desbloqueia o áudio no gesto do usuário, antes do horário agendado.
+        music.volume = 0;
+        const permission = music.play();
+        if (permission && typeof permission.then === 'function') {
+          permission.then(() => {
+            music.pause();
+            music.volume = 1;
+            syncMusic();
+          }).catch(() => {
+            music.volume = 1;
+            setMusicStatus('Áudio não liberado. Clique novamente para tentar.');
+          });
+        }
+      }
+      syncMusic();
+    });
+
+    music.addEventListener('loadedmetadata', syncMusic);
+    music.addEventListener('error', () => {
+      if (music.error) setMusicStatus('MP3 indisponível. Confira o arquivo no GitHub.');
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) syncMusic();
+    });
+    window.addEventListener('focus', syncMusic);
+    window.addEventListener('online', syncMusic);
+    syncMusic();
+    setInterval(syncMusic, 200);
+    preloadMusicOffline();
+
   </script>
 
 </body>
