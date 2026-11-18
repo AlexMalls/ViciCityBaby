@@ -346,6 +346,30 @@
       .music-button { right: 12px; bottom: 12px; }
     }
 
+
+    /* Painel de diagnostico exclusivamente local: Shift + VICECITY. */
+    #vcDebug[hidden] { display: none !important; }
+    #vcDebug {
+      position:fixed; z-index:9999; top:12px; right:12px;
+      width:min(430px,calc(100vw - 24px)); max-height:calc(100dvh - 24px);
+      overflow:auto; box-sizing:border-box; padding:12px 14px;
+      font:500 12px/1.5 Consolas,ui-monospace,monospace; text-align:left;
+      color:#eff1ff; background:rgba(12,8,26,.96);
+      border:1px solid rgba(111,236,248,.7); border-radius:12px;
+      box-shadow:0 9px 40px rgba(0,0,0,.65); backdrop-filter:blur(14px);
+    }
+    #vcDebug * { box-sizing:border-box; }
+    .vc-debug-head { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    .vc-debug-head strong { color:#7cecff; font-size:13px; letter-spacing:1px; }
+    .vc-debug-close { color:white; background:rgba(255,255,255,.12); border:0; border-radius:6px; width:25px; height:25px; cursor:pointer; }
+    .vc-debug-close:hover { background:rgba(255,88,223,.5); }
+    #vcDebug section { padding-top:9px; margin-top:8px; border-top:1px solid rgba(255,255,255,.15); }
+    #vcDebug h3 { color:#ff73db; font-size:11px; letter-spacing:.8px; margin:0 0 6px; }
+    .vc-debug-line { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.35fr); gap:10px; padding:2px 0; align-items:baseline; }
+    .vc-debug-line span { color:#abb3ce; }
+    .vc-debug-line output { font:inherit; text-align:right; overflow-wrap:anywhere; color:#fff; }
+    .vc-debug-note { font-size:10px; line-height:1.4; color:#9097b4; margin:12px 0 2px; }
+
   </style>
 </head>
 <body>
@@ -416,6 +440,16 @@
     </svg>
   </button>
   <div class="launch-message" id="launchMessage" hidden>GTA SIX CHEGOU 🎉</div>
+
+
+  <aside id="vcDebug" hidden aria-label="Painel de diagnostico Vici City">
+    <div class="vc-debug-head">
+      <strong>VICE CITY / LIVE DEBUG</strong>
+      <button type="button" id="vcDebugClose" class="vc-debug-close" aria-label="Fechar painel de diagnostico">×</button>
+    </div>
+    <div id="vcDebugRows"></div>
+    <p class="vc-debug-note">Horario local do dispositivo em Brasilia. Diagnostico somente neste navegador, sem IP. Shift + VICECITY alterna.</p>
+  </aside>
 
   <script>
     // ===== CONFIGURACAO RAPIDA =====
@@ -786,6 +820,159 @@
       syncAmbient(true); syncMusic(); scheduleAmbientCutoff();
     });
     window.addEventListener('online', syncAll);
+
+    // Atalho: segurar Shift e digitar V I C E C I T Y, nesta ordem.
+    // Persistencia por perfil de navegador via localStorage, nao por IP.
+    const vcDebugPanel = document.getElementById('vcDebug');
+    const vcDebugRows = document.getElementById('vcDebugRows');
+    const vcDebugStore = 'viciCity.debugVisible';
+    const vcDebugSchema = [
+      ['RELOGIO / TRANSICAO', [
+        ['clock','Agora em Brasilia'],['phase','Etapa musical'],
+        ['finalAt','Phil começa'],['untilFinal','Falta para o Phil'],
+        ['peakAt','Virada 00:00'],['untilPeak','Falta para 00:00'],
+        ['test','Teste / Delay']]],
+      ['SYNTHWAVE - LOOPS REVERSOS', [
+        ['duration','Duração real MP3'],['position','Posição calculada'],
+        ['actual','Posição real'],['loopRemaining','Falta neste ciclo'],
+        ['fullLoops','Loops completos restantes'],['cycleNumber','Ciclo contado de trás'],
+        ['nextLoop','Próximo fim de loop'],['drift','Desvio real vs ideal'],
+        ['corrections','Correções realizadas'],['lastCorrection','Última correção']]],
+      ['PLAYER / CARREGAMENTO', [
+        ['volume','Volume / mute'],['synthStatus','Situação do Synthwave'],
+        ['buffer','Buffer disponível'],['philStatus','Situação do Phil'],
+        ['philPosition','Posição do Phil'],['philDrift','Desvio estimado Phil'],
+        ['context','Estado AudioContext'],['cutoff','Corte programado'],
+        ['network','Conexão']]]
+    ];
+    for (const [heading, fields] of vcDebugSchema) {
+      const section = document.createElement('section');
+      const h3 = document.createElement('h3');
+      h3.textContent = heading;
+      section.appendChild(h3);
+      for (const [field, label] of fields) {
+        const row = document.createElement('div');
+        row.className = 'vc-debug-line';
+        const caption = document.createElement('span');
+        caption.textContent = label;
+        const output = document.createElement('output');
+        output.id = 'vcd-' + field;
+        output.textContent = '—';
+        row.append(caption,output);
+        section.appendChild(row);
+      }
+      vcDebugRows.appendChild(section);
+    }
+    const vcOutputs = Object.fromEntries([...vcDebugRows.querySelectorAll('output')]
+      .map(output => [output.id.slice(4), output]));
+    let vcDebugVisible = false;
+    function setVcDebug(visible) {
+      vcDebugVisible = Boolean(visible);
+      vcDebugPanel.hidden = !vcDebugVisible;
+      try { localStorage.setItem(vcDebugStore, vcDebugVisible ? '1' : '0'); }
+      catch (ignored) {}
+      if (vcDebugVisible) renderViciDebug();
+    }
+    try { setVcDebug(localStorage.getItem(vcDebugStore) === '1'); }
+    catch (ignored) { setVcDebug(false); }
+    document.getElementById('vcDebugClose').addEventListener('click', () => setVcDebug(false));
+    const vcSequence = 'VICECITY';
+    let vcTyped = '';
+    document.addEventListener('keydown', event => {
+      if (event.repeat || event.key === 'Shift') return;
+      if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+        vcTyped = ''; return;
+      }
+      const key = event.key.toUpperCase();
+      if (!/^[A-Z]$/.test(key)) { vcTyped = ''; return; }
+      const attempt = vcTyped + key;
+      vcTyped = vcSequence.startsWith(attempt) ? attempt : (key === 'V' ? 'V' : '');
+      if (vcTyped === vcSequence) {
+        vcTyped = '';
+        setVcDebug(!vcDebugVisible);
+      }
+    });
+
+    const vcFullClock = new Intl.DateTimeFormat('pt-BR',{
+      timeZone:'America/Sao_Paulo', year:'numeric',month:'2-digit',day:'2-digit',
+      hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false
+    });
+    const vcTime = new Intl.DateTimeFormat('pt-BR',{
+      timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false
+    });
+    const vcClock = ms => vcFullClock.format(new Date(ms));
+    const vcDuration = seconds => {
+      if (!Number.isFinite(seconds)) return 'aguardando metadados';
+      const v = Math.max(0,seconds), hrs=Math.floor(v/3600),
+        min=Math.floor(v%3600/60), sec=(v%60).toFixed(2).padStart(5,'0');
+      return (hrs?hrs+'h ':'')+String(min).padStart(2,'0')+'m '+sec+'s';
+    };
+    const vcUntil = seconds => seconds < 0 ?
+      'passou há '+vcDuration(-seconds) : vcDuration(seconds);
+    function vcBuffered() {
+      try {
+        for (let i=0;i<ambientAudio.buffered.length;i++) {
+          if (ambientAudio.buffered.start(i)<=ambientAudio.currentTime &&
+              ambientAudio.buffered.end(i)>=ambientAudio.currentTime)
+            return vcDuration(ambientAudio.buffered.end(i)-ambientAudio.currentTime)+' à frente';
+        }
+      } catch (ignored) {}
+      return 'sem buffer no ponto atual';
+    }
+    function renderViciDebug() {
+      if (!vcDebugVisible) return;
+      const now=Date.now(), plan=ambientPlan(now), phil=musicWindow(),
+        left=(FINAL_START_MS-now)/1000;
+      const inPhil=Boolean(phil && phil.position>=0 && phil.position<phil.trackLength);
+      let philDrift='sem reprodução';
+      if (activeSchedule && audioContext && audioContext.state==='running') {
+        const real=activeSchedule.offset+audioContext.currentTime-activeSchedule.startClock;
+        philDrift=((real-(now-activeSchedule.startMs)/1000)*1000).toFixed(0)+'ms estimado';
+      }
+      const ready=['sem dados','metadados','trecho atual','mais dados','pronto'];
+      const network=['vazio','parado','baixando','sem origem'];
+      const metrics={
+        clock:vcClock(now),
+        phase:inPhil?'PHIL COLLINS':now>=FINAL_START_MS?'FINAL / ENCERRADO':
+          (soundEnabled?'SYNTHWAVE':'SYNTHWAVE (MUDO)'),
+        finalAt:vcClock(FINAL_START_MS),
+        untilFinal:vcUntil(left),
+        peakAt:vcClock(targetDate),
+        untilPeak:vcUntil((targetDate-now)/1000),
+        test:(horarioTeste||'desativado')+' / '+Delay+'s',
+        duration:plan.valid?vcDuration(plan.duration):'carregando metadados',
+        position:plan.valid&&left>0?vcDuration(plan.position):'—',
+        actual:ambientReady?vcDuration(ambientAudio.currentTime):'aguardando',
+        loopRemaining:plan.valid&&left>0?vcDuration(plan.remainingThisLoop):'—',
+        fullLoops:plan.valid&&left>0?String(plan.completeLoopsAfter):'—',
+        cycleNumber:plan.valid&&left>0?String(plan.cycleFromEnd)+'º contado do fim':'—',
+        nextLoop:plan.valid&&left>0?vcClock(Math.min(plan.nextLoopMs,FINAL_START_MS)):'—',
+        drift:Number.isFinite(ambientLastDrift)?
+          (ambientLastDrift>0?'+':'')+ambientLastDrift.toFixed(3)+'s':'aguardando',
+        corrections:ambientResyncCount+' seeks',
+        lastCorrection:ambientLastResync,
+        volume:(soundEnabled?'som ligado':'mudo')+' | Synth '+volumeSynthwave+'% / Phil 100%',
+        synthStatus:(ambientAudio.paused?'pausado':'tocando')+
+          (ambientAudio.seeking?' / buscando':'')+
+          ' / '+(ready[ambientAudio.readyState]||'?')+
+          ' / '+(network[ambientAudio.networkState]||'?'),
+        buffer:vcBuffered(),
+        philStatus:audioBuffer?'pronto ('+vcDuration(audioBuffer.duration)+')':
+          (preloadError?'erro: '+preloadError.message:'baixando / decodificando'),
+        philPosition:phil&&phil.position>=0?vcDuration(phil.position):'aguardando',
+        philDrift,
+        context:audioContext?(audioContext.state+
+          (Number.isFinite(audioContext.baseLatency)?
+          ' / latência '+Math.round(audioContext.baseLatency*1000)+'ms':'')):'indisponível',
+        cutoff:ambientCutoffGain&&ambientCutoffPlannedAt?
+          vcTime.format(new Date(FINAL_START_MS))+' (relógio áudio)':'aguardando som',
+        network:navigator.onLine?'online / relógio local':'offline / relógio local'
+      };
+      for (const [field,value] of Object.entries(metrics)) {
+        if (vcOutputs[field]) vcOutputs[field].textContent=value;
+      }
+    }
+
     setInterval(syncAll, 200);
     // Os dois carregamentos sao independentes: o mashup faz streaming;
     // a faixa final curta continua pre-decodificada com agendamento preciso.
