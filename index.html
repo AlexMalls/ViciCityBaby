@@ -871,7 +871,8 @@
       vcDebugPanel.hidden = !vcDebugVisible;
       try { localStorage.setItem(vcDebugStore, vcDebugVisible ? '1' : '0'); }
       catch (ignored) {}
-      if (vcDebugVisible) renderViciDebug();
+      // Agenda a leitura apos a inicializacao dos formatadores de data.
+      if (vcDebugVisible) setTimeout(renderViciDebug, 0);
     }
     try { setVcDebug(localStorage.getItem(vcDebugStore) === '1'); }
     catch (ignored) { setVcDebug(false); }
