@@ -533,22 +533,38 @@
     ambientAudio.playsInline = true;
     let ambientPlayPending = false;
     let ambientReady = false;
-    const AMBIENT_ANCHOR_MS = targetDate - MUSIC_PEAK_SECONDS * 1000 + TIMING_CORRECTION_MS;
-    const FINAL_START_MS = AMBIENT_ANCHOR_MS;
+    // O mesmo evento determina a posicao do Synthwave e o inicio do Phil.
+    // Enquanto um teste ainda nao terminou, ele substitui a referencia oficial.
+    // Depois do teste, a referencia volta automaticamente para a meia-noite.
+    function activeAudioTarget(now = Date.now()) {
+      const trackLength = audioBuffer
+        ? Math.min(audioBuffer.duration, MUSIC_LENGTH_SECONDS)
+        : MUSIC_LENGTH_SECONDS;
+      const event = MUSIC_MOMENTS.find(item =>
+        now < item.peak + (trackLength - MUSIC_PEAK_SECONDS) * 1000 +
+          TIMING_CORRECTION_MS
+      );
+      if (!event) return null;
+      const startMs = event.peak - MUSIC_PEAK_SECONDS * 1000 + TIMING_CORRECTION_MS;
+      return {
+        event, startMs, endMs: startMs + trackLength * 1000, trackLength
+      };
+    }
 
     // Conta os loops de tras para frente, usando o inicio do Phil como marco fixo.
     let ambientResyncCount = 0;
     let ambientLastResync = 'nenhuma';
     let ambientLastDrift = null;
     function ambientPlan(now = Date.now()) {
-      const secondsToFinal = (FINAL_START_MS - now) / 1000;
+      const target = activeAudioTarget(now);
+      const secondsToFinal = target ? (target.startMs - now) / 1000 : null;
       const duration = ambientAudio.duration;
-      if (!Number.isFinite(duration) || duration <= 0)
-        return { valid: false, duration: null, secondsToFinal };
+      if (!target || !Number.isFinite(duration) || duration <= 0)
+        return { valid: false, target, duration: null, secondsToFinal };
       if (secondsToFinal <= 0)
-        return { valid: true, duration, secondsToFinal, position: duration,
+        return { valid: true, target, duration, secondsToFinal, position: duration,
           remainingThisLoop: 0, completeLoopsAfter: 0, cycleFromEnd: 0,
-          nextLoopMs: FINAL_START_MS };
+          nextLoopMs: target.startMs };
       // Cada trecho atual somado aos ciclos seguintes termina exatamente no Phil.
       let position = ((-secondsToFinal % duration) + duration) % duration;
       if (duration - position < 0.00001) position = 0;
@@ -556,17 +572,17 @@
       const completeLoopsAfter = Math.max(0,
         Math.round((secondsToFinal - remainingThisLoop) / duration));
       return {
-        valid: true, duration, secondsToFinal, position, remainingThisLoop,
+        valid: true, target, duration, secondsToFinal, position, remainingThisLoop,
         completeLoopsAfter, cycleFromEnd: completeLoopsAfter + 1,
         nextLoopMs: now + remainingThisLoop * 1000
       };
     }
 
     function ambientShouldPlay() {
-      if (!soundEnabled || Date.now() >= FINAL_START_MS) return false;
-      const current = musicWindow();
-      // Durante testes do Phil, o Synthwave nao pode tocar simultaneamente.
-      return !(current && current.position >= 0 && current.position < current.trackLength);
+      const now = Date.now();
+      const target = activeAudioTarget(now);
+      // O teste e a virada usam a MESMA referencia do Phil Collins.
+      return soundEnabled && Boolean(target) && now < target.startMs;
     }
 
     function syncAmbient(forceSeek = false) {
@@ -629,6 +645,8 @@
 
     let ambientCutoffGain = null;
     let ambientCutoffPlannedAt = 0;
+    let ambientCutoffEventPeak = null;
+    let ambientCutoffTime = null;
 
     if (AudioContextClass) {
       audioContext = new AudioContextClass({ latencyHint: 'interactive' });
@@ -651,17 +669,12 @@
 
     function musicWindow() {
       const now = Date.now();
-      const trackLength = audioBuffer
-        ? Math.min(audioBuffer.duration, MUSIC_LENGTH_SECONDS)
-        : MUSIC_LENGTH_SECONDS;
-      const event = MUSIC_MOMENTS.find(item =>
-        now < item.peak + (trackLength - MUSIC_PEAK_SECONDS) * 1000 + TIMING_CORRECTION_MS
-      );
-      if (!event) return null;
-      const startMs = event.peak - MUSIC_PEAK_SECONDS * 1000 + TIMING_CORRECTION_MS;
+      const target = activeAudioTarget(now);
+      if (!target) return null;
       return {
-        event, startMs, now, trackLength,
-        position: (now - startMs) / 1000
+        event: target.event, startMs: target.startMs, now,
+        trackLength: target.trackLength,
+        position: (now - target.startMs) / 1000
       };
     }
 
@@ -736,13 +749,18 @@
 
     function scheduleAmbientCutoff() {
       if (!ambientCutoffGain || !audioContext || audioContext.state !== 'running') return;
+      const now = Date.now();
+      const target = activeAudioTarget(now);
       const currentTime = audioContext.currentTime;
-      const seconds = (FINAL_START_MS - Date.now()) / 1000;
+      const seconds = target ? (target.startMs - now) / 1000 : -1;
+      // Atualizar o alvo tambem reativa a saida depois de um teste encerrado.
       ambientCutoffGain.gain.cancelScheduledValues(currentTime);
       ambientCutoffGain.gain.setValueAtTime(seconds > 0 ? 1 : 0, currentTime);
       if (seconds > 0)
         ambientCutoffGain.gain.setValueAtTime(0, currentTime + seconds);
-      ambientCutoffPlannedAt = Date.now();
+      ambientCutoffPlannedAt = now;
+      ambientCutoffEventPeak = target ? target.event.peak : null;
+      ambientCutoffTime = target ? target.startMs : null;
     }
 
     function setSoundEnabled(enabled) {
@@ -802,22 +820,26 @@
     }
 
     function syncAll() {
+      const selected = activeAudioTarget();
+      const selectedPeak = selected ? selected.event.peak : null;
+      // Reagendar IMEDIATAMENTE ao sair do teste para a virada oficial.
+      if (audioContext && audioContext.state === 'running' &&
+          (Date.now() - ambientCutoffPlannedAt > 3000 ||
+           ambientCutoffEventPeak !== selectedPeak)) scheduleAmbientCutoff();
       syncAmbient();
       syncMusic();
-      if (audioContext && audioContext.state === 'running' &&
-          Date.now() - ambientCutoffPlannedAt > 3000) scheduleAmbientCutoff();
       if (typeof renderViciDebug === 'function') renderViciDebug();
     }
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) {
-        syncAmbient(true); syncMusic(); scheduleAmbientCutoff();
+        scheduleAmbientCutoff(); syncAmbient(true); syncMusic();
       }
     });
     window.addEventListener('pageshow', () => {
-      syncAmbient(true); syncMusic(); scheduleAmbientCutoff();
+      scheduleAmbientCutoff(); syncAmbient(true); syncMusic();
     });
     window.addEventListener('focus', () => {
-      syncAmbient(true); syncMusic(); scheduleAmbientCutoff();
+      scheduleAmbientCutoff(); syncAmbient(true); syncMusic();
     });
     window.addEventListener('online', syncAll);
 
@@ -829,8 +851,10 @@
     const vcDebugSchema = [
       ['RELOGIO / TRANSICAO', [
         ['clock','Agora em Brasilia'],['phase','Etapa musical'],
-        ['finalAt','Phil começa'],['untilFinal','Falta para o Phil'],
-        ['peakAt','Virada 00:00'],['untilPeak','Falta para 00:00'],
+        ['activeEvent','Referencia ativa'],
+        ['finalAt','Phil começa (ativo)'],['untilFinal','Falta para o Phil'],
+        ['peakAt','Apice ativo'],['untilPeak','Falta para o apice'],
+        ['officialPeak','Virada oficial'],['officialRemain','Falta para a virada'],
         ['test','Teste / Delay']]],
       ['SYNTHWAVE - LOOPS REVERSOS', [
         ['duration','Duração real MP3'],['position','Posição calculada'],
@@ -923,7 +947,8 @@
     function renderViciDebug() {
       if (!vcDebugVisible) return;
       const now=Date.now(), plan=ambientPlan(now), phil=musicWindow(),
-        left=(FINAL_START_MS-now)/1000;
+        selected=activeAudioTarget(now),
+        left=selected ? (selected.startMs-now)/1000 : null;
       const inPhil=Boolean(phil && phil.position>=0 && phil.position<phil.trackLength);
       let philDrift='sem reprodução';
       if (activeSchedule && audioContext && audioContext.state==='running') {
@@ -934,12 +959,15 @@
       const network=['vazio','parado','baixando','sem origem'];
       const metrics={
         clock:vcClock(now),
-        phase:inPhil?'PHIL COLLINS':now>=FINAL_START_MS?'FINAL / ENCERRADO':
-          (soundEnabled?'SYNTHWAVE':'SYNTHWAVE (MUDO)'),
-        finalAt:vcClock(FINAL_START_MS),
-        untilFinal:vcUntil(left),
-        peakAt:vcClock(targetDate),
-        untilPeak:vcUntil((targetDate-now)/1000),
+        phase:inPhil?'PHIL COLLINS':selected ?
+          (soundEnabled?'SYNTHWAVE':'SYNTHWAVE (MUDO)') : 'FINAL / ENCERRADO',
+        activeEvent:selected ? selected.event.label : 'nenhum evento futuro',
+        finalAt:selected ? vcClock(selected.startMs) : '—',
+        untilFinal:selected ? vcUntil(left) : '—',
+        peakAt:selected ? vcClock(selected.event.peak) : '—',
+        untilPeak:selected ? vcUntil((selected.event.peak-now)/1000) : '—',
+        officialPeak:vcClock(targetDate),
+        officialRemain:vcUntil((targetDate-now)/1000),
         test:(horarioTeste||'desativado')+' / '+Delay+'s',
         duration:plan.valid?vcDuration(plan.duration):'carregando metadados',
         position:plan.valid&&left>0?vcDuration(plan.position):'—',
@@ -947,7 +975,7 @@
         loopRemaining:plan.valid&&left>0?vcDuration(plan.remainingThisLoop):'—',
         fullLoops:plan.valid&&left>0?String(plan.completeLoopsAfter):'—',
         cycleNumber:plan.valid&&left>0?String(plan.cycleFromEnd)+'º contado do fim':'—',
-        nextLoop:plan.valid&&left>0?vcClock(Math.min(plan.nextLoopMs,FINAL_START_MS)):'—',
+        nextLoop:plan.valid&&left>0?vcClock(Math.min(plan.nextLoopMs,selected.startMs)):'—',
         drift:Number.isFinite(ambientLastDrift)?
           (ambientLastDrift>0?'+':'')+ambientLastDrift.toFixed(3)+'s':'aguardando',
         corrections:ambientResyncCount+' seeks',
@@ -965,8 +993,9 @@
         context:audioContext?(audioContext.state+
           (Number.isFinite(audioContext.baseLatency)?
           ' / latência '+Math.round(audioContext.baseLatency*1000)+'ms':'')):'indisponível',
-        cutoff:ambientCutoffGain&&ambientCutoffPlannedAt?
-          vcTime.format(new Date(FINAL_START_MS))+' (relógio áudio)':'aguardando som',
+        cutoff:ambientCutoffGain&&ambientCutoffPlannedAt&&ambientCutoffTime!==null?
+          vcTime.format(new Date(ambientCutoffTime))+
+          ' ('+(selected?selected.event.label:'sem alvo')+')':'aguardando som',
         network:navigator.onLine?'online / relógio local':'offline / relógio local'
       };
       for (const [field,value] of Object.entries(metrics)) {
