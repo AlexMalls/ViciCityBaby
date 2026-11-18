@@ -528,7 +528,7 @@
       if (isLoadingBlob) return;
       isLoadingBlob = true;
       try {
-        const response = await fetch(MUSIC_URL, { cache: 'force-cache' });
+        const response = await fetch(MUSIC_URL, { cache: 'no-store' });
         if (!response.ok) throw new Error('HTTP ' + response.status);
         const blob = await response.blob();
         if (blob.size < 1024) throw new Error('MP3 vazio ou incompleto');
