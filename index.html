@@ -371,16 +371,32 @@
     .vc-debug-note { font-size:10px; line-height:1.4; color:#9097b4; margin:12px 0 2px; }
 
 
-    /* Sequencia visual apos o apice de Phil Collins. */
+    /* Sequencia visual: imagem alta do topo ate a base, depois video. */
     #finalBackground {
       position:fixed; inset:0; z-index:4; pointer-events:none; opacity:0;
-      background-image:url('./imagens/Transi%C3%A7%C3%A3o.jpeg');
-      background-size:cover; background-repeat:no-repeat;
-      background-position:center top;
-      transition:opacity 100ms linear;
+      overflow:hidden; background:transparent;
+    }
+    #finalImage {
+      position:absolute; top:0; left:50%; width:100%; height:auto;
+      max-width:none; display:block; transform:translate3d(-50%,0,0);
+      will-change:transform; user-select:none;
+    }
+    #finalVideo {
+      position:absolute; inset:0; width:100%; height:100%;
+      display:block; object-fit:cover; object-position:center center;
+      opacity:0; background:#000;
     }
     .container, .footer { transition:opacity 100ms linear; }
     .music-button { z-index:1000; }
+    .vc-debug-reset {
+      display:block; width:100%; margin-top:10px; padding:8px 10px;
+      border:1px solid rgba(124,236,255,.55); border-radius:7px;
+      background:rgba(28,95,124,.25); color:#aaf7ff;
+      font:600 12px Consolas,ui-monospace,monospace; cursor:pointer;
+    }
+    .vc-debug-reset:hover, .vc-debug-reset:focus-visible {
+      background:rgba(36,150,178,.4);
+    }
 
   </style>
 </head>
@@ -438,7 +454,12 @@
   
 
 
-  <div id="finalBackground" aria-hidden="true"></div>
+  <div id="finalBackground" aria-hidden="true">
+    <img id="finalImage" src="./imagens/Transi%C3%A7%C3%A3o.jpeg"
+         alt="" decoding="async" fetchpriority="high">
+    <video id="finalVideo" src="./RetrowaveCARvideo.mp4"
+           muted loop playsinline preload="auto" aria-hidden="true"></video>
+  </div>
 
   <button id="musicButton" class="music-button" type="button"
           aria-label="Ativar áudio" aria-pressed="false" title="Ativar áudio">
@@ -462,6 +483,7 @@
       <button type="button" id="vcDebugClose" class="vc-debug-close" aria-label="Fechar painel de diagnostico">×</button>
     </div>
     <div id="vcDebugRows"></div>
+    <button id="vcDebugReset" class="vc-debug-reset" type="button">↺ Resetar transição — voltar ao timer</button>
     <p class="vc-debug-note">Horario local do dispositivo em Brasilia. Diagnostico somente neste navegador, sem IP. Shift + VICECITY alterna.</p>
   </aside>
 
@@ -883,7 +905,12 @@
         ['buffer','Buffer disponível'],['philStatus','Situação do Phil'],
         ['philPosition','Posição do Phil'],['philDrift','Desvio estimado Phil'],
         ['context','Estado AudioContext'],['cutoff','Corte programado'],
-        ['network','Conexão']]]
+        ['network','Conexão']]],
+      ['TRANSICAO VISUAL', [
+        ['scenePhase','Etapa atual'],['sceneTime','Tempo desde o pico'],
+        ['sceneHud','Opacidade HUD'],['scenePicture','Opacidade imagem'],
+        ['sceneScroll','Rolagem concluída'],['scenePixels','Pixels percorridos'],
+        ['sceneVideo','Vídeo e carregamento'],['sceneReset','Reset local']]]
     ];
     for (const [heading, fields] of vcDebugSchema) {
       const section = document.createElement('section');
@@ -1012,73 +1039,186 @@
         cutoff:ambientCutoffGain&&ambientCutoffPlannedAt&&ambientCutoffTime!==null?
           vcTime.format(new Date(ambientCutoffTime))+
           ' ('+(selected?selected.event.label:'sem alvo')+')':'aguardando som',
-        network:navigator.onLine?'online / relógio local':'offline / relógio local'
+        network:navigator.onLine?'online / relógio local':'offline / relógio local',
+        scenePhase:visualProgressAt(now).phase,
+        sceneTime:visualProgressAt(now).elapsed===null?'antes do pico':
+          vcDuration(visualProgressAt(now).elapsed/1000),
+        sceneHud:Math.round(visualProgressAt(now).hudOpacity*100)+'%',
+        scenePicture:Math.round(visualProgressAt(now).backgroundOpacity*100)+'%',
+        sceneScroll:Math.round(visualProgressAt(now).scrollFraction*100)+'%',
+        scenePixels:Math.round(visualScrollPixels)+'px / '+Math.round(visualOverflowPx)+'px',
+        sceneVideo:(finalVideo.paused?'pausado':'tocando')+
+          ' / '+(finalVideo.readyState>=2?'pronto':'carregando')+
+          ' / '+Math.round(visualProgressAt(now).videoOpacity*100)+'%'+
+          (visualVideoError?' / erro '+visualVideoError:''),
+        sceneReset:visualSuppressedPeak===null?'não':'ativo para este evento'
       };
       for (const [field,value] of Object.entries(metrics)) {
         if (vcOutputs[field]) vcOutputs[field].textContent=value;
       }
     }
 
-    // Apice musical inclui o Delay ja calibrado; o timer nunca dispara sozinho.
+    // O pico inclui Delay. O cronograma usa tempo absoluto e resiste a F5.
     const HUD_FADE_MS = 2000;
     const HUD_HOLD_MS = 2000;
     const BACKGROUND_FADE_MS = 10000;
+    const VERTICAL_SCROLL_MS = 55000;
+    const VIDEO_CROSSFADE_MS = 3000;
+    const SCROLL_START_MS = HUD_FADE_MS + HUD_HOLD_MS + BACKGROUND_FADE_MS;
+    const SCROLL_END_MS = SCROLL_START_MS + VERTICAL_SCROLL_MS;
+
     const finalBackground = document.getElementById('finalBackground');
+    const finalImage = document.getElementById('finalImage');
+    const finalVideo = document.getElementById('finalVideo');
     const visualHud = document.querySelector('.container');
     let displayedVisualEvent = null;
+    let visualSuppressedPeak = null;
+    let visualOverflowPx = 0;
+    let visualScrollPixels = 0;
+    let visualVideoEvent = null;
+    let visualVideoFadeStart = null;
+    let visualVideoPending = false;
+    let visualVideoRetryAfter = 0;
+    let visualVideoError = null;
+
+    function resizeFinalImage() {
+      if (!finalImage.naturalWidth || !finalImage.naturalHeight) return;
+      const width = Math.max(window.innerWidth,
+        window.innerHeight * finalImage.naturalWidth / finalImage.naturalHeight);
+      const renderedHeight = width * finalImage.naturalHeight / finalImage.naturalWidth;
+      finalImage.style.width = width + 'px';
+      visualOverflowPx = Math.max(0, renderedHeight - window.innerHeight);
+    }
+    finalImage.addEventListener('load', resizeFinalImage);
+    window.addEventListener('resize', () => {
+      resizeFinalImage();
+      updateFinalVisual();
+    });
+    if (finalImage.complete) resizeFinalImage();
 
     function visualEventAt(now = Date.now()) {
       let current = null;
       for (const event of MUSIC_MOMENTS) {
-        const visualPeakMs = event.peak + TIMING_CORRECTION_MS;
-        const isOfficial = event.peak === targetDate;
-        const musicEndMs = event.peak +
-          (MUSIC_LENGTH_SECONDS - MUSIC_PEAK_SECONDS) * 1000 +
+        if (visualSuppressedPeak === event.peak) continue;
+        const peakMs = event.peak + TIMING_CORRECTION_MS;
+        const official = event.peak === targetDate;
+        const endMs = event.peak +
+          (MUSIC_LENGTH_SECONDS - MUSIC_PEAK_SECONDS)*1000 +
           TIMING_CORRECTION_MS;
-        // Testes simulam o efeito; apos terminar a faixa, o timer volta.
-        if (now >= visualPeakMs && (isOfficial || now < musicEndMs)) {
-          current = { event, visualPeakMs };
-        }
+        if (now >= peakMs && (official || now < endMs))
+          current = { event, peakMs };
       }
       return current;
     }
 
     function visualProgressAt(now = Date.now()) {
-      const selected = visualEventAt(now);
-      if (!selected) return {
-        event: null, elapsed: null, hudOpacity: 1, backgroundOpacity: 0
-      };
-      const elapsed = Math.max(0, now - selected.visualPeakMs);
-      const clamp01 = n => Math.max(0, Math.min(1, n));
+      const active = visualEventAt(now);
+      if (!active) return { event:null, elapsed:null, hudOpacity:1,
+        backgroundOpacity:0, scrollFraction:0, videoOpacity:0, phase:'AGUARDANDO' };
+      const elapsed = Math.max(0, now - active.peakMs);
+      const clamp = value => Math.max(0, Math.min(1, value));
+      const t = clamp((elapsed - SCROLL_START_MS) / VERTICAL_SCROLL_MS);
+      // Ease-in/out suave nas pontas; percorre exatamente ate a base.
+      const scrollFraction = .5 - .5*Math.cos(Math.PI*t);
+      const videoOpacity = visualVideoFadeStart===null ? 0 :
+        clamp((now - visualVideoFadeStart)/VIDEO_CROSSFADE_MS);
+      const phase = elapsed<HUD_FADE_MS?'DESAPARECENDO HUD':
+        elapsed<HUD_FADE_MS+HUD_HOLD_MS?'ESPERA 2s':
+        elapsed<SCROLL_START_MS?'FADE DA IMAGEM':
+        elapsed<SCROLL_END_MS?'DESCENDO A IMAGEM':
+        videoOpacity>=1?'VIDEO EM LOOP':'TRANSICAO PARA VIDEO';
       return {
-        event: selected.event, elapsed,
-        hudOpacity: 1 - clamp01(elapsed / HUD_FADE_MS),
-        backgroundOpacity: clamp01(
-          (elapsed - HUD_FADE_MS - HUD_HOLD_MS) / BACKGROUND_FADE_MS
-        )
+        event:active.event, elapsed,
+        hudOpacity:1-clamp(elapsed/HUD_FADE_MS),
+        backgroundOpacity:clamp((elapsed-HUD_FADE_MS-HUD_HOLD_MS) /
+          BACKGROUND_FADE_MS),
+        scrollFraction, videoOpacity, phase
       };
+    }
+
+    function stopFinalVideo() {
+      visualVideoEvent = null;
+      visualVideoFadeStart = null;
+      visualVideoPending = false;
+      visualVideoRetryAfter = 0;
+      visualVideoError = null;
+      finalVideo.pause();
+      try { finalVideo.currentTime = 0; } catch (ignored) {}
+      finalVideo.style.opacity = '0';
+    }
+
+    function startFinalVideo(eventPeak) {
+      if (visualVideoEvent !== eventPeak) {
+        stopFinalVideo();
+        visualVideoEvent = eventPeak;
+      }
+      if (!finalVideo.paused || visualVideoPending ||
+          Date.now()<visualVideoRetryAfter) return;
+      visualVideoPending = true;
+      finalVideo.muted = true;
+      const promise = finalVideo.play();
+      if (promise && typeof promise.then==='function') {
+        promise.then(() => {
+          visualVideoPending = false;
+          visualVideoError = null;
+        }).catch(error => {
+          visualVideoPending = false;
+          visualVideoError = error.name || error.message || 'video bloqueado';
+          visualVideoRetryAfter = Date.now()+3000;
+        });
+      } else visualVideoPending = false;
     }
 
     function updateFinalVisual() {
-      const state = visualProgressAt();
-      const eventPeak = state.event ? state.event.peak : null;
-      if (eventPeak !== displayedVisualEvent) {
-        const returningFromTest = displayedVisualEvent !== null &&
-          eventPeak === null;
-        const transition = returningFromTest ?
-          'opacity 1200ms ease' : 'opacity 100ms linear';
+      const now = Date.now();
+      let progress = visualProgressAt(now);
+      const eventPeak = progress.event ? progress.event.peak : null;
+      if (displayedVisualEvent !== eventPeak) {
+        const returning = displayedVisualEvent!==null && eventPeak===null;
+        const transition = returning?'opacity 1200ms ease':'none';
         visualHud.style.transition = transition;
         finalBackground.style.transition = transition;
+        if (visualVideoEvent!==eventPeak) stopFinalVideo();
         displayedVisualEvent = eventPeak;
       }
-      visualHud.style.opacity = String(state.hudOpacity);
-      visualHud.style.pointerEvents = state.hudOpacity > .05 ? '' : 'none';
-      finalBackground.style.opacity = String(state.backgroundOpacity);
+      // Inicio antecipado para que haja frames disponiveis ao chegar na base.
+      if (progress.event && progress.elapsed>=SCROLL_END_MS-5000)
+        startFinalVideo(eventPeak);
+      if (progress.event && progress.elapsed>=SCROLL_END_MS &&
+          visualVideoFadeStart===null && finalVideo.readyState>=2 &&
+          !finalVideo.paused) {
+        // Se a rede atrasar, segura a ultima imagem em vez de tela preta.
+        visualVideoFadeStart = now;
+        progress = visualProgressAt(now);
+      }
+      visualScrollPixels = visualOverflowPx*progress.scrollFraction;
+      finalImage.style.transform = 'translate3d(-50%,' +
+        (-visualScrollPixels).toFixed(2) + 'px,0)';
+      visualHud.style.opacity = String(progress.hudOpacity);
+      visualHud.style.pointerEvents = progress.hudOpacity>.05?'':'none';
+      finalBackground.style.opacity = String(progress.backgroundOpacity);
+      finalVideo.style.opacity = String(progress.videoOpacity);
     }
 
-    // Apos F5, calcula o estado exato, sem acumular atrasos de timers.
+    function resetFinalVisual() {
+      const current = visualEventAt();
+      // Reset dura ate a proxima virada/teste (ou ate recarregar a pagina).
+      visualSuppressedPeak = current ? current.event.peak : null;
+      stopFinalVideo();
+      displayedVisualEvent = null;
+      visualHud.style.transition = 'opacity 700ms ease';
+      finalBackground.style.transition = 'opacity 700ms ease';
+      updateFinalVisual();
+    }
+    document.getElementById('vcDebugReset').addEventListener('click',resetFinalVisual);
+
+    // rAF anima a imagem continuamente; ao retomar aba volta ao horario real.
+    function visualFrame() {
+      updateFinalVisual();
+      requestAnimationFrame(visualFrame);
+    }
     updateFinalVisual();
-    setInterval(updateFinalVisual, 100);
+    requestAnimationFrame(visualFrame);
 
     setInterval(syncAll, 200);
     // Os dois carregamentos sao independentes: o mashup faz streaming;
