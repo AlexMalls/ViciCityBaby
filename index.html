@@ -370,6 +370,18 @@
     .vc-debug-line output { font:inherit; text-align:right; overflow-wrap:anywhere; color:#fff; }
     .vc-debug-note { font-size:10px; line-height:1.4; color:#9097b4; margin:12px 0 2px; }
 
+
+    /* Sequencia visual apos o apice de Phil Collins. */
+    #finalBackground {
+      position:fixed; inset:0; z-index:4; pointer-events:none; opacity:0;
+      background-image:url('./imagens/Transi%C3%A7%C3%A3o.jpeg');
+      background-size:cover; background-repeat:no-repeat;
+      background-position:center top;
+      transition:opacity 100ms linear;
+    }
+    .container, .footer { transition:opacity 100ms linear; }
+    .music-button { z-index:1000; }
+
   </style>
 </head>
 <body>
@@ -426,6 +438,8 @@
   
 
 
+  <div id="finalBackground" aria-hidden="true"></div>
+
   <button id="musicButton" class="music-button" type="button"
           aria-label="Ativar áudio" aria-pressed="false" title="Ativar áudio">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -468,8 +482,10 @@
       const distance = targetDate - now;
 
       if (distance <= 0) {
-        document.getElementById('launchMessage').hidden = false;
-        document.querySelector('.container').style.display = 'none';
+        // Mantem o fundo visivel. A HUD desaparece no pico musical.
+        for (const id of ['days', 'hours', 'minutes', 'seconds']) {
+          document.getElementById(id).textContent = '00';
+        }
         return;
       }
 
@@ -1002,6 +1018,67 @@
         if (vcOutputs[field]) vcOutputs[field].textContent=value;
       }
     }
+
+    // Apice musical inclui o Delay ja calibrado; o timer nunca dispara sozinho.
+    const HUD_FADE_MS = 2000;
+    const HUD_HOLD_MS = 2000;
+    const BACKGROUND_FADE_MS = 10000;
+    const finalBackground = document.getElementById('finalBackground');
+    const visualHud = document.querySelector('.container');
+    let displayedVisualEvent = null;
+
+    function visualEventAt(now = Date.now()) {
+      let current = null;
+      for (const event of MUSIC_MOMENTS) {
+        const visualPeakMs = event.peak + TIMING_CORRECTION_MS;
+        const isOfficial = event.peak === targetDate;
+        const musicEndMs = event.peak +
+          (MUSIC_LENGTH_SECONDS - MUSIC_PEAK_SECONDS) * 1000 +
+          TIMING_CORRECTION_MS;
+        // Testes simulam o efeito; apos terminar a faixa, o timer volta.
+        if (now >= visualPeakMs && (isOfficial || now < musicEndMs)) {
+          current = { event, visualPeakMs };
+        }
+      }
+      return current;
+    }
+
+    function visualProgressAt(now = Date.now()) {
+      const selected = visualEventAt(now);
+      if (!selected) return {
+        event: null, elapsed: null, hudOpacity: 1, backgroundOpacity: 0
+      };
+      const elapsed = Math.max(0, now - selected.visualPeakMs);
+      const clamp01 = n => Math.max(0, Math.min(1, n));
+      return {
+        event: selected.event, elapsed,
+        hudOpacity: 1 - clamp01(elapsed / HUD_FADE_MS),
+        backgroundOpacity: clamp01(
+          (elapsed - HUD_FADE_MS - HUD_HOLD_MS) / BACKGROUND_FADE_MS
+        )
+      };
+    }
+
+    function updateFinalVisual() {
+      const state = visualProgressAt();
+      const eventPeak = state.event ? state.event.peak : null;
+      if (eventPeak !== displayedVisualEvent) {
+        const returningFromTest = displayedVisualEvent !== null &&
+          eventPeak === null;
+        const transition = returningFromTest ?
+          'opacity 1200ms ease' : 'opacity 100ms linear';
+        visualHud.style.transition = transition;
+        finalBackground.style.transition = transition;
+        displayedVisualEvent = eventPeak;
+      }
+      visualHud.style.opacity = String(state.hudOpacity);
+      visualHud.style.pointerEvents = state.hudOpacity > .05 ? '' : 'none';
+      finalBackground.style.opacity = String(state.backgroundOpacity);
+    }
+
+    // Apos F5, calcula o estado exato, sem acumular atrasos de timers.
+    updateFinalVisual();
+    setInterval(updateFinalVisual, 100);
 
     setInterval(syncAll, 200);
     // Os dois carregamentos sao independentes: o mashup faz streaming;
