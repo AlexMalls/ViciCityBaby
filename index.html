@@ -1082,8 +1082,9 @@
           (visualVideoError?' / '+visualVideoError:'')+
           (tvLiteMode?' / Tizen leve':'')+
           ' / H264:'+String(finalVideo.canPlayType('video/mp4; codecs="avc1.42E01E"')||'não'),
-        sceneReset:visualLockedEventPeak!==null?'vídeo permanente':
-          (visualSuppressedPeak===null?'não':'resetado para o timer')
+        sceneReset:visualLockedEventPeak===targetDate?'oficial: carro permanente':
+          (visualSuppressedPeak===null?'testes: reset automático':
+            'resetado manualmente para o timer')
       };
       for (const [field,value] of Object.entries(metrics)) {
         if (vcOutputs[field]) vcOutputs[field].textContent=value;
@@ -1165,24 +1166,45 @@
         finalVideo.currentSrc);
     });
 
-    // Ao concluir o fade do video, grava o estado final neste navegador.
-    // F5, fim do teste e novas viradas nao fazem o site voltar ao timer.
+    // Testes sempre retornam ao contador apos o fim do Phil.
+    // Apenas a virada oficial pode travar o carro permanentemente.
     const finalVideoLockKey = 'viciCity.finalVideoLockedEvent';
     const visualSuppressedKey = 'viciCity.visualSuppressedEvent';
+    const visualResetVersionKey = 'viciCity.globalVisualResetVersion';
+    // Alterar esta versao limpa o estado antigo de TODOS os navegadores
+    // na proxima abertura/atualizacao do site, inclusive Samsung/Tizen.
+    const GLOBAL_VISUAL_RESET_VERSION = '2026-11-18-after-tests-auto-reset-v2';
     let visualLockedEventPeak = null;
     try {
-      const saved = localStorage.getItem(finalVideoLockKey);
-      if (saved !== null && Number.isFinite(Number(saved)))
-        visualLockedEventPeak = Number(saved);
-      const suppressed = localStorage.getItem(visualSuppressedKey);
-      if (suppressed !== null && Number.isFinite(Number(suppressed)))
-        visualSuppressedPeak = Number(suppressed);
-    } catch (ignored) {}
+      const version = localStorage.getItem(visualResetVersionKey);
+      if (version !== GLOBAL_VISUAL_RESET_VERSION) {
+        localStorage.removeItem(finalVideoLockKey);
+        localStorage.removeItem(visualSuppressedKey);
+        localStorage.setItem(visualResetVersionKey,
+          GLOBAL_VISUAL_RESET_VERSION);
+      } else {
+        const saved = localStorage.getItem(finalVideoLockKey);
+        // Nunca restaurar um bloqueio permanente originado por TESTE.
+        if (saved !== null && Number(saved) === targetDate &&
+            Date.now() >= targetDate + TIMING_CORRECTION_MS) {
+          visualLockedEventPeak = targetDate;
+        } else if (saved !== null) {
+          localStorage.removeItem(finalVideoLockKey);
+        }
+        const suppressed = localStorage.getItem(visualSuppressedKey);
+        if (suppressed !== null && Number.isFinite(Number(suppressed)))
+          visualSuppressedPeak = Number(suppressed);
+      }
+    } catch (ignored) {
+      visualLockedEventPeak = null;
+    }
 
     function lockFinalVideo(eventPeak) {
-      if (visualLockedEventPeak !== null || eventPeak === null) return;
-      visualLockedEventPeak = eventPeak;
-      try { localStorage.setItem(finalVideoLockKey, String(eventPeak)); }
+      // Testes NUNCA criam uma trava duradoura, mesmo quando o video
+      // entra em loop. Apenas a virada oficial e persistida apos F5.
+      if (eventPeak !== targetDate || visualLockedEventPeak !== null) return;
+      visualLockedEventPeak = targetDate;
+      try { localStorage.setItem(finalVideoLockKey, String(targetDate)); }
       catch (ignored) {}
     }
 
@@ -1217,7 +1239,7 @@
     }
 
     function visualProgressAt(now = Date.now()) {
-      if (visualLockedEventPeak !== null) return {
+      if (visualLockedEventPeak === targetDate) return {
         event:{ peak:visualLockedEventPeak, label:'video permanente' },
         elapsed:Math.max(0,now-visualLockedEventPeak-TIMING_CORRECTION_MS),
         hudOpacity:0, backgroundOpacity:1, scrollFraction:1,
@@ -1334,11 +1356,13 @@
         progress = visualProgressAt(now);
       }
 
-      // Se o navegador da TV nao aceitar o arquivo, conserva a imagem
-      // como cena final depois de 12s de tolerancia; nunca retorna ao timer.
+      // TESTE: video em loop so ate o fim da faixa; retorna ao timer.
+      // VIRADA OFICIAL: trava o carro ate reset manual no debug.
+      // Na Samsung, se o MP4 nao tocar, mantem o JPEG em vez de tela preta.
       if (visualLockedEventPeak===null && progress.event &&
-          (progress.videoOpacity>=1 && visualVideoFadeStart!==null &&
-           videoReady ||
+          eventPeak===targetDate &&
+          ((progress.videoOpacity>=1 && visualVideoFadeStart!==null &&
+            videoReady) ||
            progress.elapsed>=SCROLL_END_MS+VIDEO_CROSSFADE_MS+12000)) {
         lockFinalVideo(eventPeak);
         progress = visualProgressAt(now);
