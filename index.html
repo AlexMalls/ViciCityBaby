@@ -398,6 +398,23 @@
       background:rgba(36,150,178,.4);
     }
 
+    /* Modo leve no Tizen/Samsung Internet: menos filtros e camadas
+       translucidas, mantendo layout, cor base e identidade do site. */
+    .tv-lite body::before { filter:none; }
+    .tv-lite .card, .tv-lite .date-box, .tv-lite .button,
+    .tv-lite #vcDebug {
+      -webkit-backdrop-filter:none !important;
+      backdrop-filter:none !important;
+    }
+    .tv-lite .card { background:rgba(22,8,38,.53); }
+    .tv-lite .date-box { background:rgba(30,8,48,.65); }
+    .tv-lite #finalImage {
+      will-change:transform;
+      -webkit-backface-visibility:hidden;
+      backface-visibility:hidden;
+    }
+    .tv-lite #finalVideo { will-change:opacity; }
+
   </style>
 </head>
 <body>
@@ -455,10 +472,11 @@
 
 
   <div id="finalBackground" aria-hidden="true">
-    <img id="finalImage" src="./imagens/Transi%C3%A7%C3%A3o.jpeg"
-         alt="" decoding="async" fetchpriority="high">
-    <video id="finalVideo" src="./RetrowaveCARvideo.mp4"
-           muted loop playsinline preload="auto" aria-hidden="true"></video>
+    <img id="finalImage" data-src="./imagens/Transi%C3%A7%C3%A3o.jpeg"
+         alt="" decoding="async">
+    <video id="finalVideo" data-src="./RetrowaveCARvideo.mp4"
+           muted loop playsinline webkit-playsinline preload="none"
+           aria-hidden="true"></video>
   </div>
 
   <button id="musicButton" class="music-button" type="button"
@@ -496,6 +514,11 @@
     // Volume EXCLUSIVO do Synthwave (0 = mudo, 100 = maximo).
     const volumeSynthwave = 100;
     // ==============================
+
+    // O navegador da TV recebe animacao menos custosa. No PC, tudo normal.
+    const tvLiteMode = /Tizen|SamsungBrowser|SMART.TV|SmartTV/i.test(
+      navigator.userAgent || '');
+    if (tvLiteMode) document.documentElement.classList.add('tv-lite');
 
     const targetDate = new Date('2026-11-19T00:00:00-03:00').getTime();
 
@@ -1048,9 +1071,11 @@
         sceneScroll:Math.round(visualProgressAt(now).scrollFraction*100)+'%',
         scenePixels:Math.round(visualScrollPixels)+'px / '+Math.round(visualOverflowPx)+'px',
         sceneVideo:(finalVideo.paused?'pausado':'tocando')+
-          ' / '+(finalVideo.readyState>=2?'pronto':'carregando')+
+          ' / '+visualVideoStatus+
           ' / '+Math.round(visualProgressAt(now).videoOpacity*100)+'%'+
-          (visualVideoError?' / erro '+visualVideoError:''),
+          (visualVideoError?' / '+visualVideoError:'')+
+          (tvLiteMode?' / Tizen leve':'')+
+          ' / H264:'+String(finalVideo.canPlayType('video/mp4; codecs="avc1.42E01E"')||'não'),
         sceneReset:visualLockedEventPeak!==null?'vídeo permanente':
           (visualSuppressedPeak===null?'não':'resetado para o timer')
       };
@@ -1081,6 +1106,58 @@
     let visualVideoPending = false;
     let visualVideoRetryAfter = 0;
     let visualVideoError = null;
+    let visualVideoPrepared = false;
+    let visualImagePrepared = false;
+    let visualVideoStatus = 'aguardando';
+    let visualVideoPlaying = false;
+
+    function prepareFinalImage() {
+      if (visualImagePrepared) return;
+      visualImagePrepared = true;
+      finalImage.src = finalImage.dataset.src;
+    }
+
+    // MP4 so comeca a baixar perto de ser usado. A TV nao precisa decodificar
+    // video de fundo enquanto o timer/Phil/Synthwave estao tocando.
+    function prepareFinalVideo() {
+      if (visualVideoPrepared) return;
+      visualVideoPrepared = true;
+      visualVideoStatus = 'baixando';
+      finalVideo.muted = true;
+      finalVideo.defaultMuted = true;
+      finalVideo.src = finalVideo.dataset.src;
+      finalVideo.load();
+    }
+    finalVideo.addEventListener('loadedmetadata', () => {
+      visualVideoStatus = 'metadados ' + finalVideo.videoWidth +
+        'x' + finalVideo.videoHeight;
+    });
+    finalVideo.addEventListener('canplay', () => {
+      visualVideoStatus = 'pronto';
+    });
+    finalVideo.addEventListener('playing', () => {
+      visualVideoStatus = 'reproduzindo';
+      visualVideoPlaying = true;
+    });
+    finalVideo.addEventListener('waiting', () => {
+      visualVideoStatus = 'aguardando dados';
+      visualVideoPlaying = false;
+    });
+    finalVideo.addEventListener('stalled', () => {
+      visualVideoStatus = 'rede lenta / stalled';
+      visualVideoPlaying = false;
+    });
+    finalVideo.addEventListener('pause', () => {
+      visualVideoPlaying = false;
+    });
+    finalVideo.addEventListener('error', () => {
+      const errorCode = finalVideo.error ? finalVideo.error.code : '?';
+      visualVideoError = 'erro HTML5 ' + errorCode;
+      visualVideoStatus = visualVideoError;
+      visualVideoPlaying = false;
+      console.warn('ViciCity vídeo:', visualVideoError,
+        finalVideo.currentSrc);
+    });
 
     // Ao concluir o fade do video, grava o estado final neste navegador.
     // F5, fim do teste e novas viradas nao fazem o site voltar ao timer.
@@ -1116,7 +1193,7 @@
       resizeFinalImage();
       updateFinalVisual();
     });
-    if (finalImage.complete) resizeFinalImage();
+    if (finalImage.complete && finalImage.naturalWidth) resizeFinalImage();
 
     function visualEventAt(now = Date.now()) {
       let current = null;
@@ -1170,12 +1247,16 @@
       visualVideoPending = false;
       visualVideoRetryAfter = 0;
       visualVideoError = null;
+      visualVideoPlaying = false;
       finalVideo.pause();
-      try { finalVideo.currentTime = 0; } catch (ignored) {}
+      try {
+        if (finalVideo.readyState > 0) finalVideo.currentTime = 0;
+      } catch (ignored) {}
       finalVideo.style.opacity = '0';
     }
 
     function startFinalVideo(eventPeak) {
+      prepareFinalVideo();
       if (visualVideoEvent !== eventPeak) {
         stopFinalVideo();
         visualVideoEvent = eventPeak;
@@ -1184,7 +1265,17 @@
           Date.now()<visualVideoRetryAfter) return;
       visualVideoPending = true;
       finalVideo.muted = true;
-      const promise = finalVideo.play();
+      // Tizen permite video sem audio, mas pode exigir atributo autoplay
+      // alem da chamada play(). As duas vias sao mantidas.
+      finalVideo.autoplay = true;
+      let promise;
+      try { promise = finalVideo.play(); }
+      catch (error) {
+        visualVideoPending = false;
+        visualVideoError = error.name || error.message;
+        visualVideoRetryAfter = Date.now()+3500;
+        return;
+      }
       if (promise && typeof promise.then==='function') {
         promise.then(() => {
           visualVideoPending = false;
@@ -1192,7 +1283,7 @@
         }).catch(error => {
           visualVideoPending = false;
           visualVideoError = error.name || error.message || 'video bloqueado';
-          visualVideoRetryAfter = Date.now()+3000;
+          visualVideoRetryAfter = Date.now()+3500;
         });
       } else visualVideoPending = false;
     }
@@ -1201,6 +1292,15 @@
       const now = Date.now();
       let progress = visualProgressAt(now);
       const eventPeak = progress.event ? progress.event.peak : null;
+
+      // Carrega o JPEG apenas quando a cena esta proxima (30s antes do pico).
+      // Quando a pagina ja esta na cena final, prepara imediatamente.
+      const pending = activeAudioTarget(now);
+      const untilPeak = pending ? pending.event.peak +
+        TIMING_CORRECTION_MS - now : Infinity;
+      if (visualLockedEventPeak!==null || progress.event ||
+          (untilPeak>=0 && untilPeak<=30000)) prepareFinalImage();
+
       if (displayedVisualEvent !== eventPeak) {
         const returning = displayedVisualEvent!==null && eventPeak===null;
         const transition = returning?'opacity 1200ms ease':'none';
@@ -1209,34 +1309,53 @@
         if (visualVideoEvent!==eventPeak) stopFinalVideo();
         displayedVisualEvent = eventPeak;
       }
-      // Inicio antecipado para que haja frames disponiveis ao chegar na base.
-      if (progress.event && progress.elapsed>=SCROLL_END_MS-5000)
+
+      // Streaming antecipado: evita baixar/decodificar 19 MB no início do site.
+      if (progress.event && progress.elapsed>=SCROLL_END_MS-30000)
+        prepareFinalVideo();
+      if (progress.event && progress.elapsed>=SCROLL_END_MS-7000)
         startFinalVideo(eventPeak);
+
+      // Aguarda reproduzir pelo menos um quadro; senao mantem o JPEG.
+      const videoReady = finalVideo.readyState>=2 &&
+        !finalVideo.paused && !finalVideo.error &&
+        (visualVideoPlaying || finalVideo.currentTime>0.15);
       if (progress.event && progress.elapsed>=SCROLL_END_MS &&
-          visualVideoFadeStart===null && finalVideo.readyState>=2 &&
-          !finalVideo.paused && visualLockedEventPeak===null) {
-        // Se a rede atrasar, segura a ultima imagem em vez de tela preta.
+          visualVideoFadeStart===null && videoReady &&
+          visualLockedEventPeak===null) {
         visualVideoFadeStart = now;
         progress = visualProgressAt(now);
       }
-      // Trava no video assim que o fade termina (ou ao retornar de aba
-      // suspensa). O fim do teste e a meia-noite deixam de afetar a cena.
+
       if (visualLockedEventPeak===null && progress.event &&
           progress.videoOpacity>=1 && visualVideoFadeStart!==null &&
-          finalVideo.readyState>=2 && !finalVideo.paused) {
+          videoReady) {
         lockFinalVideo(eventPeak);
         progress = visualProgressAt(now);
       }
+
       visualScrollPixels = visualOverflowPx*progress.scrollFraction;
-      finalImage.style.transform = 'translate3d(-50%,' +
+      // Evita invalidar camadas 60 vezes por segundo: TV usa 10 FPS
+      // de atualizacao e compositor CSS interpola cada deslocamento.
+      const transform = 'translate3d(-50%,' +
         (-visualScrollPixels).toFixed(2) + 'px,0)';
-      visualHud.style.opacity = String(progress.hudOpacity);
-      visualHud.style.pointerEvents = progress.hudOpacity>.05?'':'none';
-      finalBackground.style.opacity = String(progress.backgroundOpacity);
-      // Com F5 no estado permanente, deixa a ultima imagem visivel ate
-      // o video ter um frame renderizavel, evitando tela preta.
-      finalVideo.style.opacity = visualLockedEventPeak!==null &&
-        finalVideo.readyState<2 ? '0' : String(progress.videoOpacity);
+      const hudOpacity=String(progress.hudOpacity);
+      const bgOpacity=String(progress.backgroundOpacity);
+      const videoOpacity=visualLockedEventPeak!==null && !videoReady ?
+        '0' : String(progress.videoOpacity);
+      if (finalImage.style.transform!==transform)
+        finalImage.style.transform=transform;
+      if (visualHud.style.opacity!==hudOpacity)
+        visualHud.style.opacity=hudOpacity;
+      visualHud.style.pointerEvents=progress.hudOpacity>.05?'':'none';
+      if (finalBackground.style.opacity!==bgOpacity)
+        finalBackground.style.opacity=bgOpacity;
+      if (finalVideo.style.opacity!==videoOpacity)
+        finalVideo.style.opacity=videoOpacity;
+      // Video permanente: nao manter decodificacao/animação do JPEG em
+      // paralelo. Se o video falhar, a imagem continua como fallback.
+      finalImage.style.visibility=videoReady && visualLockedEventPeak!==null ?
+        'hidden' : 'visible';
     }
 
     function resetFinalVisual() {
@@ -1261,13 +1380,24 @@
     }
     document.getElementById('vcDebugReset').addEventListener('click',resetFinalVisual);
 
-    // rAF anima a imagem continuamente; ao retomar aba volta ao horario real.
-    function visualFrame() {
+    // O navegador da TV nao precisa de requestAnimationFrame a 60 FPS
+    // quando o site esta parado ou exibindo video. O tempo vem do relogio.
+    function visualTick() {
       updateFinalVisual();
-      requestAnimationFrame(visualFrame);
+      const progress = visualProgressAt();
+      const interval = progress.phase==='AGUARDANDO' ? 250 :
+        (visualLockedEventPeak!==null ? 600 : (tvLiteMode?100:33));
+      setTimeout(visualTick, interval);
     }
-    updateFinalVisual();
-    requestAnimationFrame(visualFrame);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) updateFinalVisual();
+    });
+    finalVideo.addEventListener('ended', () => {
+      // loop HTML5 ja ativo; tenta retomar se algum navegador o interromper.
+      if (visualLockedEventPeak!==null && finalVideo.paused)
+        startFinalVideo(visualLockedEventPeak);
+    });
+    visualTick();
 
     setInterval(syncAll, 200);
     // Os dois carregamentos sao independentes: o mashup faz streaming;
